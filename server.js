@@ -6,6 +6,7 @@ import { errorHandler } from "./src/middleware/errorHandler.js";
 import { notFound } from "./src/middleware/notFound.js";
 import authRouter from "./src/routes/authRoutes.js";
 import userRouter from "./src/routes/userRoutes.js";
+import { sendSuccessResponse } from "./src/utils/response.js";
 
 const app = express();
 

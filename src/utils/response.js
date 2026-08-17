@@ -1,15 +1,20 @@
 export function sendSuccessResponse(
   res,
-  statusCode,
-  message,
+  statusCode = 200,
+  message = "Success",
   data = null
 ) {
-  return res.status(statusCode).json({
+  const response = {
     success: true,
     statusCode,
     message,
-    data,
-  });
+  };
+
+  if (data) {
+    response.data = data;
+  }
+
+  return res.status(statusCode).json(response);
 }
 
 export function sendErrorResponse(
