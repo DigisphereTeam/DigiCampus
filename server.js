@@ -6,6 +6,10 @@ import { errorHandler } from "./src/middleware/errorHandler.js";
 import { notFound } from "./src/middleware/notFound.js";
 import authRouter from "./src/routes/authRoutes.js";
 import userRouter from "./src/routes/userRoutes.js";
+import StudentRouter from "./src/routes/studentRoutes.js";
+import parentRouter from "./src/routes/parentRoutes.js";
+import libraryRouter from "./src/routes/libraryRoutes.js";
+import transportRouter from "./src/routes/transportRoutes.js";
 
 const app = express();
 
@@ -25,6 +29,10 @@ app.get("/", (req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
+app.use("/students", StudentRouter);
+app.use("/parents", parentRouter);
+app.use("/library", libraryRouter);
+app.use("/transport", transportRouter);
 
 app.use(notFound);
 app.use(errorHandler);
