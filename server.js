@@ -2,9 +2,19 @@ import cors from "cors";
 import "dotenv/config";
 import express from "express";
 import pool from "./src/config/database.js";
+import apiLogger from "./src/middleware/apiLogger.js";
 import { errorHandler } from "./src/middleware/errorHandler.js";
 import { notFound } from "./src/middleware/notFound.js";
+import academicRouter from "./src/routes/academicRoutes.js";
 import authRouter from "./src/routes/authRoutes.js";
+import classRouter from "./src/routes/classRoutes.js";
+import classSectionRouter from "./src/routes/classSectionRoutes.js";
+import departmentRouter from "./src/routes/departmentRoutes.js";
+import designationRouter from "./src/routes/designationRoutes.js";
+import employeeRouter from "./src/routes/employeeRoutes.js";
+import eventRouter from "./src/routes/eventRoutes.js";
+import sectionRouter from "./src/routes/sectionRoutes.js";
+import teacherRouter from "./src/routes/teacherRoutes.js";
 import userRouter from "./src/routes/userRoutes.js";
 import { sendSuccessResponse } from "./src/utils/response.js";
 
@@ -16,6 +26,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.use(apiLogger);
+
 app.get("/", (req, res) => {
   return sendSuccessResponse(
     res,
@@ -26,6 +38,17 @@ app.get("/", (req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
+app.use("/employees", employeeRouter);
+app.use("/classes", classRouter);
+app.use("/events", eventRouter);
+
+app.use("/teacher", teacherRouter);
+
+app.use("/academic-years", academicRouter);
+app.use("/sections", sectionRouter);
+app.use("/class-sections", classSectionRouter);
+app.use("/departments", departmentRouter);
+app.use("/designations", designationRouter);
 
 app.use(notFound);
 app.use(errorHandler);

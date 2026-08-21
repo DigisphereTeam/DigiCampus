@@ -212,6 +212,7 @@ export async function getMe(req, res) {
     );
   }
 }
+
 export async function changePassword(req, res) {
   const { user_id } = req.user;
 
@@ -221,10 +222,8 @@ export async function changePassword(req, res) {
   } = req.body;
 
   try {
-    if (
-      !current_password ||
-      !new_password
-    ) {
+    // Validate required fields
+    if (!current_password || !new_password) {
       return sendErrorResponse(
         res,
         400,
@@ -232,6 +231,7 @@ export async function changePassword(req, res) {
       );
     }
 
+    // Validate password types
     if (
       typeof current_password !== "string" ||
       typeof new_password !== "string"
@@ -243,17 +243,17 @@ export async function changePassword(req, res) {
       );
     }
 
-    if (new_password.length < 6) {
+    // Validate new password length
+    if (new_password.length < 8) {
       return sendErrorResponse(
         res,
         400,
-        "New password must be at least 6 characters"
+        "New password must be at least 8 characters"
       );
     }
 
-    if (
-      current_password === new_password
-    ) {
+    // Check if new password is same as current password
+    if (current_password === new_password) {
       return sendErrorResponse(
         res,
         400,
@@ -261,6 +261,7 @@ export async function changePassword(req, res) {
       );
     }
 
+    // Get authenticated user
     const result = await pool.query(
       `
         SELECT
@@ -284,6 +285,7 @@ export async function changePassword(req, res) {
 
     const user = result.rows[0];
 
+    // Check account status
     if (!user.is_active) {
       return sendErrorResponse(
         res,
@@ -292,11 +294,11 @@ export async function changePassword(req, res) {
       );
     }
 
-    const isPasswordValid =
-      await bcrypt.compare(
-        current_password,
-        user.password_hash
-      );
+    // Verify current password
+    const isPasswordValid = await bcrypt.compare(
+      current_password,
+      user.password_hash
+    );
 
     if (!isPasswordValid) {
       return sendErrorResponse(
@@ -306,12 +308,13 @@ export async function changePassword(req, res) {
       );
     }
 
-    const passwordHash =
-      await bcrypt.hash(
-        new_password,
-        10
-      );
+    // Hash new password
+    const passwordHash = await bcrypt.hash(
+      new_password,
+      10
+    );
 
+    // Update password
     await pool.query(
       `
         UPDATE tbl_users
@@ -331,16 +334,13 @@ export async function changePassword(req, res) {
       200,
       "Password changed successfully"
     );
+
   } catch (error) {
-    console.error(
-      "Change password error:",
-      error
-    );
+    console.error("Change password error:", error);
 
     return sendErrorResponse(
       res,
       500,
-      error.message ||
       "Failed to change password"
     );
   }
