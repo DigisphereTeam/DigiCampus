@@ -1,440 +1,354 @@
 import pool from "../config/database.js";
 
+import {
+  sendSuccessResponse,
+  sendErrorResponse,
+} from "../utils/response.js";
+
 export const createBook = async (req, res) => {
   const {
-    book_code,
     title,
     author,
-    isbn,
     category,
-    publisher,
-    total_quantity,
-    available_quantity,
-    shelf_number,
+    total_copies,
+    available_copies,
   } = req.body;
 
-  try {
-    if (
-      !book_code ||
-      !title ||
-      total_quantity == null ||
-      available_quantity == null
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Book code, title, total quantity and available quantity are required.",
-      });
-    }
-
-    if (Number(total_quantity) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Total quantity must be greater than zero.",
-      });
-    }
-
-    if (Number(available_quantity) < 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Available quantity cannot be negative.",
-      });
-    }
-
-    if (Number(available_quantity) > Number(total_quantity)) {
-      return res.status(400).json({
-        success: false,
-        message: "Available quantity cannot be greater than total quantity.",
-      });
-    }
-
-    const existingBook = await pool.query(
-      `
-      SELECT book_id
-      FROM tbl_library_books
-      WHERE LOWER(book_code) = LOWER($1)
-         OR ($2 IS NOT NULL AND isbn = $2)
-      LIMIT 1
-      `,
-      [
-        book_code.trim(),
-        isbn?.trim() || null,
-      ]
+  if (!title || !author || total_copies == null) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Title, author and total copies are required."
     );
+  }
 
-    if (existingBook.rowCount > 0) {
-      return res.status(409).json({
-        success: false,
-        message: "Book code or ISBN already exists.",
-      });
-    }
+  if (Number(total_copies) < 1) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Total copies must be at least 1."
+    );
+  }
 
+  const availableCopies =
+    available_copies == null
+      ? Number(total_copies)
+      : Number(available_copies);
+
+  if (availableCopies < 0) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Available copies cannot be negative."
+    );
+  }
+
+  if (availableCopies > Number(total_copies)) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Available copies cannot be greater than total copies."
+    );
+  }
+
+  try {
     const result = await pool.query(
       `
       INSERT INTO tbl_library_books
       (
-        book_code,
         title,
         author,
-        isbn,
         category,
-        publisher,
-        total_quantity,
-        available_quantity,
-        shelf_number
+        total_copies,
+        available_copies
       )
-      VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      RETURNING *
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *;
       `,
       [
-        book_code.trim(),
         title.trim(),
-        author?.trim() || null,
-        isbn?.trim() || null,
+        author.trim(),
         category?.trim() || null,
-        publisher?.trim() || null,
-        Number(total_quantity),
-        Number(available_quantity),
-        shelf_number?.trim() || null,
+        Number(total_copies),
+        availableCopies,
       ]
     );
 
-    return res.status(201).json({
-      success: true,
-      message: "Book created successfully.",
-      data: result.rows[0],
-    });
+    return sendSuccessResponse(
+      res,
+      201,
+      "Book created successfully.",
+      result.rows[0]
+    );
   } catch (error) {
     console.error("Create Book Error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal Server Error",
-    });
+    return sendErrorResponse(
+      res,
+      500,
+      error.message || "Failed to create book."
+    );
   }
 };
 
 export const getAllBooks = async (req, res) => {
-  const { search, category, is_active } = req.query;
-
   try {
-    let query = `
-      SELECT
-        book_id,
-        book_code,
-        title,
-        author,
-        isbn,
-        category,
-        publisher,
-        total_quantity,
-        available_quantity,
-        shelf_number,
-        is_active,
-        created_at,
-        updated_at
+    const result = await pool.query(
+      `
+      SELECT *
       FROM tbl_library_books
-      WHERE 1=1
-    `;
+      ORDER BY book_id DESC;
+      `
+    );
 
-    const values = [];
-    let index = 1;
-
-    if (search) {
-      query += `
-        AND (
-          title ILIKE $${index}
-          OR book_code ILIKE $${index}
-          OR author ILIKE $${index}
-          OR isbn ILIKE $${index}
-        )
-      `;
-
-      values.push(`%${search}%`);
-      index++;
-    }
-
-    if (category) {
-      query += `
-        AND LOWER(category) = LOWER($${index})
-      `;
-
-      values.push(category.trim());
-      index++;
-    }
-
-    if (is_active !== undefined) {
-      query += `
-        AND is_active = $${index}
-      `;
-
-      values.push(is_active === "true");
-      index++;
-    }
-
-    query += `
-      ORDER BY book_id DESC
-    `;
-
-    const result = await pool.query(query, values);
-
-    return res.status(200).json({
-      success: true,
-      message: "Books fetched successfully.",
-      data: result.rows,
-    });
+    return sendSuccessResponse(
+      res,
+      200,
+      "Books fetched successfully.",
+      result.rows
+    );
   } catch (error) {
     console.error("Get All Books Error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal Server Error",
-    });
+    return sendErrorResponse(
+      res,
+      500,
+      error.message || "Failed to fetch books."
+    );
   }
 };
 
 export const getBookById = async (req, res) => {
   const { book_id } = req.params;
 
-  try {
-    if (!book_id || isNaN(book_id) || Number(book_id) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid book ID is required.",
-      });
-    }
+  if (
+    !book_id ||
+    isNaN(book_id) ||
+    Number(book_id) <= 0
+  ) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Valid book ID is required."
+    );
+  }
 
+  try {
     const result = await pool.query(
       `
-      SELECT
-        book_id,
-        book_code,
-        title,
-        author,
-        isbn,
-        category,
-        publisher,
-        total_quantity,
-        available_quantity,
-        shelf_number,
-        is_active,
-        created_at,
-        updated_at
+      SELECT *
       FROM tbl_library_books
-      WHERE book_id = $1
+      WHERE book_id = $1;
       `,
       [book_id]
     );
 
     if (result.rowCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Book not found.",
-      });
+      return sendErrorResponse(
+        res,
+        404,
+        "Book not found."
+      );
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Book fetched successfully.",
-      data: result.rows[0],
-    });
+    return sendSuccessResponse(
+      res,
+      200,
+      "Book fetched successfully.",
+      result.rows[0]
+    );
   } catch (error) {
     console.error("Get Book By ID Error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal Server Error",
-    });
+    return sendErrorResponse(
+      res,
+      500,
+      error.message || "Failed to fetch book."
+    );
   }
 };
 
 export const updateBook = async (req, res) => {
   const { book_id } = req.params;
 
+  if (
+    !book_id ||
+    isNaN(book_id) ||
+    Number(book_id) <= 0
+  ) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Valid book ID is required."
+    );
+  }
+
   const {
-    book_code,
     title,
     author,
-    isbn,
     category,
-    publisher,
-    total_quantity,
-    available_quantity,
-    shelf_number,
+    total_copies,
+    available_copies,
+    is_active,
   } = req.body;
 
+  if (
+    title === undefined &&
+    author === undefined &&
+    category === undefined &&
+    total_copies === undefined &&
+    available_copies === undefined &&
+    is_active === undefined
+  ) {
+    return sendErrorResponse(
+      res,
+      400,
+      "At least one field is required to update."
+    );
+  }
+
   try {
-    if (!book_id || isNaN(book_id) || Number(book_id) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid book ID is required.",
-      });
-    }
-
-    if (!book_code || !title) {
-      return res.status(400).json({
-        success: false,
-        message: "Book code and title are required.",
-      });
-    }
-
-    if (total_quantity == null || available_quantity == null) {
-      return res.status(400).json({
-        success: false,
-        message: "Total quantity and available quantity are required.",
-      });
-    }
-
-    if (Number(total_quantity) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Total quantity must be greater than zero.",
-      });
-    }
-
-    if (Number(available_quantity) < 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Available quantity cannot be negative.",
-      });
-    }
-
-    if (Number(available_quantity) > Number(total_quantity)) {
-      return res.status(400).json({
-        success: false,
-        message: "Available quantity cannot be greater than total quantity.",
-      });
-    }
-
-    const bookResult = await pool.query(
+    const existingBook = await pool.query(
       `
-      SELECT book_id
+      SELECT *
       FROM tbl_library_books
-      WHERE book_id = $1
+      WHERE book_id = $1;
       `,
       [book_id]
     );
 
-    if (bookResult.rowCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Book not found.",
-      });
+    if (existingBook.rowCount === 0) {
+      return sendErrorResponse(
+        res,
+        404,
+        "Book not found."
+      );
     }
 
-    const duplicateBook = await pool.query(
-      `
-      SELECT book_id
-      FROM tbl_library_books
-      WHERE
-        book_id != $1
-        AND (
-          LOWER(book_code) = LOWER($2)
-          OR ($3 IS NOT NULL AND isbn = $3)
-        )
-      LIMIT 1
-      `,
-      [
-        book_id,
-        book_code.trim(),
-        isbn?.trim() || null,
-      ]
-    );
+    const currentBook = existingBook.rows[0];
 
-    if (duplicateBook.rowCount > 0) {
-      return res.status(409).json({
-        success: false,
-        message: "Book code or ISBN already exists.",
-      });
+    const newTotalCopies =
+      total_copies !== undefined
+        ? Number(total_copies)
+        : currentBook.total_copies;
+
+    const newAvailableCopies =
+      available_copies !== undefined
+        ? Number(available_copies)
+        : currentBook.available_copies;
+
+    if (newTotalCopies < 1) {
+      return sendErrorResponse(
+        res,
+        400,
+        "Total copies must be at least 1."
+      );
+    }
+
+    if (newAvailableCopies < 0) {
+      return sendErrorResponse(
+        res,
+        400,
+        "Available copies cannot be negative."
+      );
+    }
+
+    if (newAvailableCopies > newTotalCopies) {
+      return sendErrorResponse(
+        res,
+        400,
+        "Available copies cannot be greater than total copies."
+      );
     }
 
     const result = await pool.query(
       `
       UPDATE tbl_library_books
       SET
-        book_code = $1,
-        title = $2,
-        author = $3,
-        isbn = $4,
-        category = $5,
-        publisher = $6,
-        total_quantity = $7,
-        available_quantity = $8,
-        shelf_number = $9,
+        title = COALESCE($1, title),
+        author = COALESCE($2, author),
+        category = COALESCE($3, category),
+        total_copies = $4,
+        available_copies = $5,
+        is_active = COALESCE($6, is_active),
         updated_at = CURRENT_TIMESTAMP
-      WHERE book_id = $10
-      RETURNING *
+      WHERE book_id = $7
+      RETURNING *;
       `,
       [
-        book_code.trim(),
-        title.trim(),
+        title?.trim() || null,
         author?.trim() || null,
-        isbn?.trim() || null,
         category?.trim() || null,
-        publisher?.trim() || null,
-        Number(total_quantity),
-        Number(available_quantity),
-        shelf_number?.trim() || null,
+        newTotalCopies,
+        newAvailableCopies,
+        is_active ?? null,
         book_id,
       ]
     );
 
-    return res.status(200).json({
-      success: true,
-      message: "Book updated successfully.",
-      data: result.rows[0],
-    });
+    return sendSuccessResponse(
+      res,
+      200,
+      "Book updated successfully.",
+      result.rows[0]
+    );
   } catch (error) {
     console.error("Update Book Error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal Server Error",
-    });
+    return sendErrorResponse(
+      res,
+      500,
+      error.message || "Failed to update book."
+    );
   }
 };
 
 export const deleteBook = async (req, res) => {
   const { book_id } = req.params;
 
-  try {
-    if (!book_id || isNaN(book_id) || Number(book_id) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid book ID is required.",
-      });
-    }
+  if (
+    !book_id ||
+    isNaN(book_id) ||
+    Number(book_id) <= 0
+  ) {
+    return sendErrorResponse(
+      res,
+      400,
+      "Valid book ID is required."
+    );
+  }
 
+  try {
     const result = await pool.query(
       `
-      UPDATE tbl_library_books
-      SET
-        is_active = FALSE,
-        updated_at = CURRENT_TIMESTAMP
+      DELETE FROM tbl_library_books
       WHERE book_id = $1
-      RETURNING *
+      RETURNING *;
       `,
       [book_id]
     );
 
     if (result.rowCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Book not found.",
-      });
+      return sendErrorResponse(
+        res,
+        404,
+        "Book not found."
+      );
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Book deleted successfully.",
-      data: result.rows[0],
-    });
+    return sendSuccessResponse(
+      res,
+      200,
+      "Book deleted successfully.",
+      result.rows[0]
+    );
   } catch (error) {
     console.error("Delete Book Error:", error);
 
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal Server Error",
-    });
+    return sendErrorResponse(
+      res,
+      500,
+      error.message || "Failed to delete book."
+    );
   }
 };

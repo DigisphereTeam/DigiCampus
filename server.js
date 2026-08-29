@@ -9,7 +9,9 @@ import userRouter from "./src/routes/userRoutes.js";
 import StudentRouter from "./src/routes/studentRoutes.js";
 import parentRouter from "./src/routes/parentRoutes.js";
 import libraryRouter from "./src/routes/libraryRoutes.js";
+import libraryTransactionRouter from "./src/routes/libraryTransactionRoutes.js";
 import transportRouter from "./src/routes/transportRoutes.js";
+import subjectRouter from "./src/routes/subjectRoutes.js";
 
 const app = express();
 
@@ -33,7 +35,8 @@ app.use("/students", StudentRouter);
 app.use("/parents", parentRouter);
 app.use("/library", libraryRouter);
 app.use("/transport", transportRouter);
-
+app.use("/library-transactions", libraryTransactionRouter);
+app.use("/subjects", subjectRouter);
 app.use(notFound);
 app.use(errorHandler);
 
