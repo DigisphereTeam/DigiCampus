@@ -175,7 +175,37 @@ export async function createUser(req, res) {
 }
 
 export async function getAllUsers(req, res) {
+  const { role } = req.query;
+
   try {
+    const values = [];
+    let whereClause = "";
+
+    if (role) {
+      const allowedRoles = [
+        "SUPER_ADMIN",
+        "ADMIN",
+        "TEACHER",
+        "ACCOUNTANT",
+        "STAFF",
+        "STUDENT",
+        "PARENT",
+      ];
+
+      const userRole = role.toUpperCase();
+
+      if (!allowedRoles.includes(userRole)) {
+        return sendErrorResponse(
+          res,
+          400,
+          "Invalid user role"
+        );
+      }
+
+      values.push(userRole);
+      whereClause = "WHERE role = $1";
+    }
+
     const result = await pool.query(
       `
         SELECT
@@ -187,8 +217,10 @@ export async function getAllUsers(req, res) {
           created_at,
           updated_at
         FROM tbl_users
+        ${whereClause}
         ORDER BY user_id DESC
-      `
+      `,
+      values
     );
 
     return sendSuccessResponse(
@@ -198,15 +230,12 @@ export async function getAllUsers(req, res) {
       result.rows
     );
   } catch (error) {
-    console.error(
-      "Get users error:",
-      error
-    );
+    console.error("Get users error:", error);
 
     return sendErrorResponse(
       res,
       500,
-      error.message || "Failed to fetch users"
+      "Failed to fetch users"
     );
   }
 }

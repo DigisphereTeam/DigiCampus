@@ -1,4 +1,8 @@
-import pg from "pg";
+import pg, { types } from "pg";
+
+// import "dotenv/config";
+
+types.setTypeParser(1082, (value) => value);
 
 const { Pool } = pg;
 
