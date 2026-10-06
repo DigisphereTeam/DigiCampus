@@ -7,6 +7,7 @@ import {
   getExpenseById,
   getExpenses
 } from "../controllers/accountController.js";
+
 import authMiddleware from "../middleware/authMiddleware.js";
 
 const accountRouter = express.Router();

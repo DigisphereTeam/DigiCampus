@@ -1,5 +1,5 @@
-import { sendErrorResponse } from "../utils/response.js";
-import { hasValue } from "../utils/validation.js";
+import { sendErrorResponse } from "../../utils/response.js";
+import { hasValue } from "../../utils/validation.js";
 
 export const validateAssignFeeToStudent = (req, res, next) => {
   const {

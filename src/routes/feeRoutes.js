@@ -9,11 +9,9 @@ import {
   getStudentFeeDetails
 } from "../controllers/feeController.js";
 
-
-import { authorizeRoles } from "../middleware/roleMiddleware.js";
-
 import authMiddleware from "../middleware/authMiddleware.js";
-import upload from "../middleware/uploadMiddleware.js";
+import authorizeRoles from "../middleware/authorizeRoles.js";
+
 import { validateAddFeePayment, validateAssignFeeToStudent } from "../middleware/validation/feeValidation.js";
 
 const feeRouter = express.Router();
@@ -54,7 +52,7 @@ feeRouter.post(
 feeRouter.post(
   "/payment",
   authorizeRoles("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
-  upload.single("receipt"),
+  // upload.single("receipt"),
   validateAddFeePayment,
   addFeePayment
 );
