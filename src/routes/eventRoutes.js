@@ -11,6 +11,7 @@ import {
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/authorizeRoles.js";
+import { validateCreateEvent, validateUpdateEvent } from "../middleware/validation/eventValidation.js";
 
 const eventRouter = express.Router();
 
@@ -21,6 +22,7 @@ eventRouter.post(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateCreateEvent,
   createEvent
 );
 
@@ -61,6 +63,7 @@ eventRouter.patch(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateUpdateEvent,
   updateEvent
 );
 

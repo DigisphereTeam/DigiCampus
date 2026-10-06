@@ -2,19 +2,18 @@ import pool from "../config/database.js";
 
 import {
   sendErrorResponse,
-  sendSuccessResponse
+  sendSuccessResponse,
 } from "../utils/response.js";
 
-export async function bulkCreateSections(req, res) {
+import { isValidId } from "../utils/validation.js";
+
+export const bulkCreateSections = async (req, res, next) => {
   const client = await pool.connect();
 
   try {
-    const { sections } = req.body || {};
+    const { sections } = req.body;
 
-    if (
-      !Array.isArray(sections) ||
-      sections.length === 0
-    ) {
+    if (!Array.isArray(sections) || sections.length === 0) {
       return sendErrorResponse(
         res,
         400,
@@ -27,66 +26,32 @@ export async function bulkCreateSections(req, res) {
     const values = [];
     const placeholders = [];
 
-    for (let i = 0; i < sections.length; i++) {
-      const section = sections[i] || {};
-
-      const {
-        section_name,
-        description
-      } = section;
-
-      if (
-        !section_name ||
-        typeof section_name !== "string" ||
-        !section_name.trim()
-      ) {
-        errors[`sections[${i}].section_name`] =
-          "Section name is required";
-
-        continue;
-      }
-
-      if (
-        description !== undefined &&
-        description !== null &&
-        typeof description !== "string"
-      ) {
-        errors[`sections[${i}].description`] =
-          "Description must be a string";
-
-        continue;
-      }
-
-      const cleanName =
-        section_name.trim();
-
-      const normalizedName =
-        cleanName.toLowerCase();
+    sections.forEach((section, index) => {
+      const normalizedName = section.section_name
+        .trim()
+        .toLowerCase();
 
       if (names.includes(normalizedName)) {
-        errors[`sections[${i}].section_name`] =
-          `Duplicate section '${cleanName}' in request`;
+        errors[`sections[${index}].section_name`] =
+          `Duplicate section '${section.section_name}' in request`;
 
-        continue;
+        return;
       }
 
       names.push(normalizedName);
 
-      const nameIndex =
-        values.length + 1;
-
-      const descriptionIndex =
-        values.length + 2;
+      const nameIndex = values.length + 1;
+      const descriptionIndex = values.length + 2;
 
       values.push(
-        cleanName,
-        description?.trim() || null
+        section.section_name,
+        section.description || null
       );
 
       placeholders.push(
         `($${nameIndex}, $${descriptionIndex})`
       );
-    }
+    });
 
     if (Object.keys(errors).length > 0) {
       return sendErrorResponse(
@@ -127,95 +92,63 @@ export async function bulkCreateSections(req, res) {
 
     await client.query("COMMIT");
 
-    const insertedNames =
-      result.rows.map(
-        row => row.section_name.toLowerCase()
-      );
+    const insertedNames = [];
 
-    const skippedSections =
-      names.filter(
-        name => !insertedNames.includes(name)
-      );
+    result.rows.forEach((row) => {
+      insertedNames.push(row.section_name.toLowerCase());
+    });
+
+    const skippedSections = [];
+
+    names.forEach((name) => {
+      if (!insertedNames.includes(name)) {
+        skippedSections.push(name);
+      }
+    });
 
     return sendSuccessResponse(
       res,
       201,
       "Sections processed successfully",
       {
-        inserted_count:
-          result.rows.length,
-
-        skipped_count:
-          skippedSections.length,
-
-        skipped_sections:
-          skippedSections,
-
-        sections:
-          result.rows
+        inserted_count: result.rows.length,
+        skipped_count: skippedSections.length,
+        skipped_sections: skippedSections,
+        sections: result.rows,
       }
     );
-
   } catch (error) {
     await client.query("ROLLBACK");
-
-    console.error(
-      "Bulk create sections error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to create sections";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
-
+    next(error);
   } finally {
     client.release();
   }
-}
+};
 
-export async function createSection(req, res) {
+export const createSection = async (req, res, next) => {
   try {
-    const { section_name, description } =
-      req.body || {};
+    const {
+      section_name,
+      description,
+    } = req.body;
 
-    const errors = {};
+    const existingSection = await pool.query(
+      `
+        SELECT section_id
+        FROM tbl_sections
+        WHERE LOWER(section_name) = LOWER($1)
+        LIMIT 1
+      `,
+      [section_name]
+    );
 
-    if (
-      !section_name ||
-      typeof section_name !== "string" ||
-      !section_name.trim()
-    ) {
-      errors.section_name =
-        "Section name is required";
-    }
-
-    if (
-      description !== undefined &&
-      description !== null &&
-      typeof description !== "string"
-    ) {
-      errors.description =
-        "Description must be a string";
-    }
-
-    if (Object.keys(errors).length > 0) {
+    if (existingSection.rows.length > 0) {
       return sendErrorResponse(
         res,
-        400,
-        "Validation failed",
-        errors
+        409,
+        "Section already exists"
       );
     }
-
-    const cleanSectionName =
-      section_name.trim();
 
     const result = await pool.query(
       `
@@ -233,8 +166,8 @@ export async function createSection(req, res) {
           updated_at
       `,
       [
-        cleanSectionName,
-        description?.trim() || null
+        section_name,
+        description || null,
       ]
     );
 
@@ -244,35 +177,12 @@ export async function createSection(req, res) {
       "Section created successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Create section error:",
-      error
-    );
-
-    if (error.code === "23505") {
-      return sendErrorResponse(
-        res,
-        409,
-        "Section already exists"
-      );
-    }
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to create section";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function getAllSections(req, res) {
+export const getAllSections = async (req, res, next) => {
   try {
     const { is_active } = req.query;
 
@@ -280,20 +190,7 @@ export async function getAllSections(req, res) {
     let condition = "";
 
     if (is_active !== undefined) {
-      if (
-        is_active !== "true" &&
-        is_active !== "false"
-      ) {
-        return sendErrorResponse(
-          res,
-          400,
-          "is_active must be true or false"
-        );
-      }
-
-      values.push(
-        is_active === "true"
-      );
+      values.push(is_active === "true");
 
       condition = `
         WHERE is_active = $1
@@ -322,42 +219,24 @@ export async function getAllSections(req, res) {
       "Sections fetched successfully",
       result.rows
     );
-
   } catch (error) {
-    console.error(
-      "Get sections error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to fetch sections";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function getSectionById(req, res) {
+export const getSectionById = async (req, res, next) => {
   try {
-    const { section_id } =
-      req.params;
+    const { section_id } = req.params;
 
-    if (
-      !section_id ||
-      !/^\d+$/.test(section_id) ||
-      Number(section_id) <= 0
-    ) {
+    if (!isValidId(section_id)) {
       return sendErrorResponse(
         res,
         400,
-        `Section ID ${section_id} is invalid`
+        "Valid section ID is required"
       );
     }
+
+    const sectionId = Number(section_id);
 
     const result = await pool.query(
       `
@@ -372,14 +251,14 @@ export async function getSectionById(req, res) {
         WHERE section_id = $1
         LIMIT 1
       `,
-      [Number(section_id)]
+      [sectionId]
     );
 
     if (result.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        `Section ID ${section_id} not found`
+        `Section with ID ${sectionId} not found`
       );
     }
 
@@ -389,171 +268,116 @@ export async function getSectionById(req, res) {
       "Section fetched successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Get section error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to fetch section";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function updateSection(req, res) {
+export const updateSection = async (req, res, next) => {
   try {
-    const { section_id } =
-      req.params;
+    const { section_id } = req.params;
 
     const {
       section_name,
-      description
-    } = req.body || {};
+      description,
+    } = req.body;
 
-    if (
-      !section_id ||
-      !/^\d+$/.test(section_id) ||
-      Number(section_id) <= 0
-    ) {
+    if (!isValidId(section_id)) {
       return sendErrorResponse(
         res,
         400,
-        `Section ID ${section_id} is invalid`
+        "Valid section ID is required"
       );
     }
 
-    const errors = {};
+    const sectionId = Number(section_id);
 
-    if (section_name !== undefined) {
-      if (
-        typeof section_name !== "string" ||
-        !section_name.trim()
-      ) {
-        errors.section_name =
-          "Section name cannot be empty";
-      }
-    }
+    const existingSection = await pool.query(
+      `
+        SELECT
+          section_id,
+          section_name,
+          description,
+          is_active
+        FROM tbl_sections
+        WHERE section_id = $1
+        LIMIT 1
+      `,
+      [sectionId]
+    );
 
-    if (
-      description !== undefined &&
-      description !== null &&
-      typeof description !== "string"
-    ) {
-      errors.description =
-        "Description must be a string";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
-
-    if (
-      section_name === undefined &&
-      description === undefined
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "At least one field is required"
-      );
-    }
-
-    const existing =
-      await pool.query(
-        `
-          SELECT
-            section_id,
-            section_name,
-            description
-          FROM tbl_sections
-          WHERE section_id = $1
-          LIMIT 1
-        `,
-        [Number(section_id)]
-      );
-
-    if (existing.rows.length === 0) {
+    if (existingSection.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        `Section ID ${section_id} not found`
+        `Section with ID ${sectionId} not found`
       );
     }
 
-    const current =
-      existing.rows[0];
-
-    const newSectionName =
-      section_name !== undefined
-        ? section_name.trim()
-        : current.section_name;
-
-    const newDescription =
-      description !== undefined
-        ? description?.trim() || null
-        : current.description;
-
-    const duplicate =
-      await pool.query(
+    if (section_name !== undefined) {
+      const duplicateSection = await pool.query(
         `
           SELECT section_id
           FROM tbl_sections
-          WHERE LOWER(section_name) =
-                LOWER($1)
-            AND section_id <> $2
+          WHERE LOWER(section_name) = LOWER($1)
+          AND section_id != $2
           LIMIT 1
         `,
         [
-          newSectionName,
-          Number(section_id)
+          section_name,
+          sectionId,
         ]
       );
 
-    if (duplicate.rows.length > 0) {
+      if (duplicateSection.rows.length > 0) {
+        return sendErrorResponse(
+          res,
+          409,
+          "Section with this name already exists"
+        );
+      }
+    }
+
+    const fields = [];
+    const values = [];
+
+    if (section_name !== undefined) {
+      fields.push(`section_name = $${values.length + 1}`);
+      values.push(section_name);
+    }
+
+    if (description !== undefined) {
+      fields.push(`description = $${values.length + 1}`);
+      values.push(description);
+    }
+
+    if (fields.length === 0) {
       return sendErrorResponse(
         res,
-        409,
-        `Section '${newSectionName}' already exists`
+        400,
+        "At least one field is required for update"
       );
     }
 
-    const result =
-      await pool.query(
-        `
-          UPDATE tbl_sections
-          SET
-            section_name = $1,
-            description = $2,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE section_id = $3
-          RETURNING
-            section_id,
-            section_name,
-            description,
-            is_active,
-            created_at,
-            updated_at
-        `,
-        [
-          newSectionName,
-          newDescription,
-          Number(section_id)
-        ]
-      );
+    fields.push("updated_at = CURRENT_TIMESTAMP");
+
+    values.push(sectionId);
+
+    const result = await pool.query(
+      `
+        UPDATE tbl_sections
+        SET ${fields.join(", ")}
+        WHERE section_id = $${values.length}
+        RETURNING
+          section_id,
+          section_name,
+          description,
+          is_active,
+          created_at,
+          updated_at
+      `,
+      values
+    );
 
     return sendSuccessResponse(
       res,
@@ -561,122 +385,63 @@ export async function updateSection(req, res) {
       "Section updated successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Update section error:",
-      error
-    );
-
-    if (error.code === "23505") {
-      return sendErrorResponse(
-        res,
-        409,
-        "Section already exists"
-      );
-    }
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to update section";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function updateSectionStatus(
-  req,
-  res
-) {
+export const updateSectionStatus = async (req, res, next) => {
   try {
-    const { section_id } =
-      req.params;
+    const { section_id } = req.params;
+    const { is_active } = req.body;
 
-    const { is_active } =
-      req.body || {};
-
-    if (
-      !section_id ||
-      !/^\d+$/.test(section_id) ||
-      Number(section_id) <= 0
-    ) {
+    if (!isValidId(section_id)) {
       return sendErrorResponse(
         res,
         400,
-        `Section ID ${section_id} is invalid`
+        "Valid section ID is required"
       );
     }
 
-    if (
-      typeof is_active !== "boolean"
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "is_active is required and must be a boolean"
-      );
-    }
+    const sectionId = Number(section_id);
 
-    const result =
-      await pool.query(
-        `
-          UPDATE tbl_sections
-          SET
-            is_active = $1,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE section_id = $2
-          RETURNING
-            section_id,
-            section_name,
-            description,
-            is_active,
-            created_at,
-            updated_at
-        `,
-        [
+    const result = await pool.query(
+      `
+        UPDATE tbl_sections
+        SET
+          is_active = $1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE section_id = $2
+        RETURNING
+          section_id,
+          section_name,
+          description,
           is_active,
-          Number(section_id)
-        ]
-      );
+          created_at,
+          updated_at
+      `,
+      [
+        is_active,
+        sectionId,
+      ]
+    );
 
     if (result.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        `Section ID ${section_id} not found`
+        `Section with ID ${sectionId} not found`
       );
     }
 
     return sendSuccessResponse(
       res,
       200,
-      `Section ${is_active
-        ? "activated"
-        : "deactivated"
+      `Section ${is_active ? "activated" : "deactivated"
       } successfully`,
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Update section status error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to update section status";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};

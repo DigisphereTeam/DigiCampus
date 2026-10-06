@@ -6,12 +6,12 @@ import {
   getAllDepartments,
   getDepartmentById,
   updateDepartment,
-  updateDepartmentStatus
+  updateDepartmentStatus,
 } from "../controllers/departmentController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
-
 import authorizeRoles from "../middleware/authorizeRoles.js";
+import { validateBulkCreateDepartments, validateCreateDepartment, validateGetDepartments, validateUpdateDepartment, validateUpdateDepartmentStatus } from "../middleware/validation/departmentValidation.js";
 
 const departmentRouter = express.Router();
 
@@ -22,6 +22,7 @@ departmentRouter.post(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateBulkCreateDepartments,
   bulkCreateDepartments
 );
 
@@ -32,6 +33,7 @@ departmentRouter.post(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateCreateDepartment,
   createDepartment
 );
 
@@ -42,6 +44,7 @@ departmentRouter.get(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateGetDepartments,
   getAllDepartments
 );
 
@@ -62,6 +65,7 @@ departmentRouter.patch(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateUpdateDepartment,
   updateDepartment
 );
 
@@ -72,6 +76,7 @@ departmentRouter.patch(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateUpdateDepartmentStatus,
   updateDepartmentStatus
 );
 

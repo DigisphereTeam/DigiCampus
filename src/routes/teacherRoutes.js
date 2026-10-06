@@ -1,44 +1,46 @@
 import express from "express";
-
 import {
-  changeTeacherPassword,
-  getTeacherClasses,
+  createTeacher,
+  deleteTeacher,
+  getTeacherAttendance,
+  getTeacherById,
   getTeacherProfile,
-  updateTeacherProfile
+  getTeachers,
+  updateTeacher,
+  updateTeacherStatus,
 } from "../controllers/teacherController.js";
-
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/authorizeRoles.js";
+import { validateCreateTeacher, validateUpdateTeacher } from "../middleware/validation/teacherValidation.js";
 
 const teacherRouter = express.Router();
 
+teacherRouter.use(authMiddleware);
+
+teacherRouter.post("/", authorizeRoles("SUPER_ADMIN", "ADMIN"), validateCreateTeacher, createTeacher);
+
 teacherRouter.get(
-  "/profile",
-  authMiddleware,
-  authorizeRoles("TEACHER"),
+  "/attendance",
+  getTeacherAttendance
+);
+
+teacherRouter.get("/", authorizeRoles("SUPER_ADMIN", "ADMIN"), getTeachers);
+
+teacherRouter.get(
+  "/:teacher_id/profile",
   getTeacherProfile
 );
 
-teacherRouter.patch(
-  "/profile",
-  authMiddleware,
-  authorizeRoles("TEACHER"),
-  updateTeacherProfile
-);
+teacherRouter.get("/:teacher_id", authorizeRoles("SUPER_ADMIN", "ADMIN"), getTeacherById);
+
+teacherRouter.patch("/:teacher_id", authorizeRoles("SUPER_ADMIN", "ADMIN"), validateUpdateTeacher, updateTeacher);
 
 teacherRouter.patch(
-  "/change-password",
-  authMiddleware,
-  authorizeRoles("TEACHER"),
-  changeTeacherPassword
+  "/:teacher_id/status",
+  updateTeacherStatus
 );
 
-teacherRouter.get(
-  "/classes",
-  authMiddleware,
-  authorizeRoles("TEACHER"),
-  getTeacherClasses
-);
+
+teacherRouter.delete("/:teacher_id", authorizeRoles("SUPER_ADMIN", "ADMIN"), deleteTeacher);
 
 export default teacherRouter;
-

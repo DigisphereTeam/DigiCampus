@@ -11,6 +11,7 @@ import {
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/authorizeRoles.js";
+import { validateCreateSection, validateUpdateSection } from "../middleware/validation/sectionValidation.js";
 
 const sectionRouter = express.Router();
 
@@ -31,6 +32,7 @@ sectionRouter.post(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateCreateSection,
   createSection
 );
 
@@ -63,6 +65,7 @@ sectionRouter.patch(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateUpdateSection,
   updateSection
 );
 

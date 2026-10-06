@@ -2,34 +2,12 @@ import pool from "../config/database.js";
 
 import {
   sendErrorResponse,
-  sendSuccessResponse
+  sendSuccessResponse,
 } from "../utils/response.js";
 
-function isValidDate(value) {
-  if (
-    typeof value !== "string" ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(value)
-  ) {
-    return false;
-  }
+import { isValidId } from "../utils/validation.js";
 
-  const [year, month, day] =
-    value.split("-").map(Number);
-
-  const date = new Date(
-    year,
-    month - 1,
-    day
-  );
-
-  return (
-    date.getFullYear() === year &&
-    date.getMonth() === month - 1 &&
-    date.getDate() === day
-  );
-}
-
-export async function createAcademicYear(req, res) {
+export const createAcademicYear = async (req, res, next) => {
   const client = await pool.connect();
 
   try {
@@ -37,82 +15,10 @@ export async function createAcademicYear(req, res) {
       academic_year,
       start_date,
       end_date,
-      is_current
-    } = req.body || {};
-
-    const errors = {};
-
-    if (
-      !academic_year ||
-      typeof academic_year !== "string" ||
-      !academic_year.trim()
-    ) {
-      errors.academic_year =
-        "Academic year is required";
-    }
-
-    if (
-      !start_date ||
-      typeof start_date !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(start_date)
-    ) {
-      errors.start_date =
-        "Start date must be in YYYY-MM-DD format";
-    } else if (!isValidDate(start_date)) {
-      errors.start_date =
-        "Start date must be a valid date";
-    }
-
-    if (
-      !end_date ||
-      typeof end_date !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(end_date)
-    ) {
-      errors.end_date =
-        "End date must be in YYYY-MM-DD format";
-    } else if (!isValidDate(end_date)) {
-      errors.end_date =
-        "End date must be a valid date";
-    }
-
-    if (
-      is_current !== undefined &&
-      typeof is_current !== "boolean"
-    ) {
-      errors.is_current =
-        "is_current must be a boolean";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
-
-    if (
-      new Date(`${end_date}T00:00:00`) <=
-      new Date(`${start_date}T00:00:00`)
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "End date must be greater than start date"
-      );
-    }
-
-    const cleanAcademicYear =
-      academic_year.trim();
+      is_current,
+    } = req.body;
 
     await client.query("BEGIN");
-
-    await client.query(`
-      SELECT pg_advisory_xact_lock(
-        hashtext('academic_year_creation')
-      )
-    `);
 
     const existing = await client.query(
       `
@@ -121,7 +27,7 @@ export async function createAcademicYear(req, res) {
         WHERE LOWER(academic_year) = LOWER($1)
         LIMIT 1
       `,
-      [cleanAcademicYear]
+      [academic_year]
     );
 
     if (existing.rows.length > 0) {
@@ -130,7 +36,7 @@ export async function createAcademicYear(req, res) {
       return sendErrorResponse(
         res,
         409,
-        `Academic year '${cleanAcademicYear}' already exists`
+        `Academic year '${academic_year}' already exists`
       );
     }
 
@@ -164,10 +70,10 @@ export async function createAcademicYear(req, res) {
           updated_at
       `,
       [
-        cleanAcademicYear,
+        academic_year,
         start_date,
         end_date,
-        is_current === true
+        is_current === true,
       ]
     );
 
@@ -179,14 +85,8 @@ export async function createAcademicYear(req, res) {
       "Academic year created successfully",
       result.rows[0]
     );
-
   } catch (error) {
     await client.query("ROLLBACK");
-
-    console.error(
-      "Create academic year error:",
-      error
-    );
 
     if (error.code === "23505") {
       return sendErrorResponse(
@@ -196,23 +96,13 @@ export async function createAcademicYear(req, res) {
       );
     }
 
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to create academic year";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
-
+    next(error);
   } finally {
     client.release();
   }
-}
+};
 
-export async function getAllAcademicYears(req, res) {
+export const getAllAcademicYears = async (req, res, next) => {
   try {
     const { is_active } = req.query;
 
@@ -220,17 +110,6 @@ export async function getAllAcademicYears(req, res) {
     let condition = "";
 
     if (is_active !== undefined) {
-      if (
-        is_active !== "true" &&
-        is_active !== "false"
-      ) {
-        return sendErrorResponse(
-          res,
-          400,
-          "is_active must be true or false"
-        );
-      }
-
       values.push(is_active === "true");
 
       condition = `
@@ -251,8 +130,9 @@ export async function getAllAcademicYears(req, res) {
           updated_at
         FROM tbl_academic_years
         ${condition}
-        ORDER BY start_date DESC,
-                 academic_year_id DESC
+        ORDER BY
+          start_date DESC,
+          academic_year_id DESC
       `,
       values
     );
@@ -263,30 +143,16 @@ export async function getAllAcademicYears(req, res) {
       "Academic years fetched successfully",
       result.rows
     );
-
   } catch (error) {
-    console.error(
-      "Get academic years error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to fetch academic years";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function getCurrentAcademicYear(
+export const getCurrentAcademicYear = async (
   req,
-  res
-) {
+  res,
+  next
+) => {
   try {
     const result = await pool.query(`
       SELECT
@@ -318,44 +184,28 @@ export async function getCurrentAcademicYear(
       "Current academic year fetched successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Get current academic year error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to fetch current academic year";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function getAcademicYearById(
+export const getAcademicYearById = async (
   req,
-  res
-) {
+  res,
+  next
+) => {
   try {
     const { academic_year_id } = req.params;
 
-    if (
-      !academic_year_id ||
-      !/^\d+$/.test(academic_year_id) ||
-      Number(academic_year_id) <= 0
-    ) {
+    if (!isValidId(academic_year_id)) {
       return sendErrorResponse(
         res,
         400,
-        `Academic year ID ${academic_year_id} is invalid`
+        "Valid academic year ID is required"
       );
     }
+
+    const academicYearId = Number(academic_year_id);
 
     const result = await pool.query(
       `
@@ -372,14 +222,14 @@ export async function getAcademicYearById(
         WHERE academic_year_id = $1
         LIMIT 1
       `,
-      [Number(academic_year_id)]
+      [academicYearId]
     );
 
     if (result.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        `Academic year ID ${academic_year_id} not found`
+        `Academic year with ID ${academicYearId} not found`
       );
     }
 
@@ -389,30 +239,16 @@ export async function getAcademicYearById(
       "Academic year fetched successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Get academic year error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to fetch academic year";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};
 
-export async function updateAcademicYear(
+export const updateAcademicYear = async (
   req,
-  res
-) {
+  res,
+  next
+) => {
   const client = await pool.connect();
 
   try {
@@ -423,116 +259,36 @@ export async function updateAcademicYear(
       start_date,
       end_date,
       is_current,
-      is_active
-    } = req.body || {};
+      is_active,
+    } = req.body;
 
-    if (
-      !academic_year_id ||
-      !/^\d+$/.test(academic_year_id) ||
-      Number(academic_year_id) <= 0
-    ) {
+    if (!isValidId(academic_year_id)) {
       return sendErrorResponse(
         res,
         400,
-        `Academic year ID ${academic_year_id} is invalid`
+        "Valid academic year ID is required"
       );
     }
 
-    const errors = {};
-
-    if (academic_year !== undefined) {
-      if (
-        typeof academic_year !== "string" ||
-        !academic_year.trim()
-      ) {
-        errors.academic_year =
-          "Academic year cannot be empty";
-      }
-    }
-
-    if (start_date !== undefined) {
-      if (
-        typeof start_date !== "string" ||
-        !/^\d{4}-\d{2}-\d{2}$/.test(start_date)
-      ) {
-        errors.start_date =
-          "Start date must be in YYYY-MM-DD format";
-      } else if (!isValidDate(start_date)) {
-        errors.start_date =
-          "Start date must be a valid date";
-      }
-    }
-
-    if (end_date !== undefined) {
-      if (
-        typeof end_date !== "string" ||
-        !/^\d{4}-\d{2}-\d{2}$/.test(end_date)
-      ) {
-        errors.end_date =
-          "End date must be in YYYY-MM-DD format";
-      } else if (!isValidDate(end_date)) {
-        errors.end_date =
-          "End date must be a valid date";
-      }
-    }
-
-    if (
-      is_current !== undefined &&
-      typeof is_current !== "boolean"
-    ) {
-      errors.is_current =
-        "is_current must be a boolean";
-    }
-
-    if (
-      is_active !== undefined &&
-      typeof is_active !== "boolean"
-    ) {
-      errors.is_active =
-        "is_active must be a boolean";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
-
-    if (
-      academic_year === undefined &&
-      start_date === undefined &&
-      end_date === undefined &&
-      is_current === undefined &&
-      is_active === undefined
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "At least one field is required"
-      );
-    }
+    const academicYearId = Number(academic_year_id);
 
     await client.query("BEGIN");
 
-    const existingResult =
-      await client.query(
-        `
-          SELECT
-            academic_year_id,
-            academic_year,
-            start_date,
-            end_date,
-            is_current,
-            is_active
-          FROM tbl_academic_years
-          WHERE academic_year_id = $1
-          LIMIT 1
-        `,
-        [Number(academic_year_id)]
-      );
+    const existingResult = await client.query(
+      `
+        SELECT
+          academic_year_id,
+          academic_year,
+          start_date,
+          end_date,
+          is_current,
+          is_active
+        FROM tbl_academic_years
+        WHERE academic_year_id = $1
+        LIMIT 1
+      `,
+      [academicYearId]
+    );
 
     if (existingResult.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -540,16 +296,15 @@ export async function updateAcademicYear(
       return sendErrorResponse(
         res,
         404,
-        `Academic year ID ${academic_year_id} not found`
+        `Academic year with ID ${academicYearId} not found`
       );
     }
 
-    const existing =
-      existingResult.rows[0];
+    const existing = existingResult.rows[0];
 
     const newAcademicYear =
       academic_year !== undefined
-        ? academic_year.trim()
+        ? academic_year
         : existing.academic_year;
 
     const newStartDate =
@@ -561,6 +316,54 @@ export async function updateAcademicYear(
       end_date !== undefined
         ? end_date
         : existing.end_date;
+
+    const fields = [];
+    const values = [];
+
+    if (academic_year !== undefined) {
+      fields.push(
+        `academic_year = $${values.length + 1}`
+      );
+      values.push(newAcademicYear);
+    }
+
+    if (start_date !== undefined) {
+      fields.push(
+        `start_date = $${values.length + 1}`
+      );
+      values.push(newStartDate);
+    }
+
+    if (end_date !== undefined) {
+      fields.push(
+        `end_date = $${values.length + 1}`
+      );
+      values.push(newEndDate);
+    }
+
+    if (is_current !== undefined) {
+      fields.push(
+        `is_current = $${values.length + 1}`
+      );
+      values.push(is_current);
+    }
+
+    if (is_active !== undefined) {
+      fields.push(
+        `is_active = $${values.length + 1}`
+      );
+      values.push(is_active);
+    }
+
+    if (fields.length === 0) {
+      await client.query("ROLLBACK");
+
+      return sendErrorResponse(
+        res,
+        400,
+        "At least one field is required for update"
+      );
+    }
 
     if (
       new Date(`${newEndDate}T00:00:00`) <=
@@ -576,21 +379,19 @@ export async function updateAcademicYear(
     }
 
     if (academic_year !== undefined) {
-      const duplicate =
-        await client.query(
-          `
-            SELECT academic_year_id
-            FROM tbl_academic_years
-            WHERE LOWER(academic_year) =
-                  LOWER($1)
-              AND academic_year_id <> $2
-            LIMIT 1
-          `,
-          [
-            newAcademicYear,
-            Number(academic_year_id)
-          ]
-        );
+      const duplicate = await client.query(
+        `
+          SELECT academic_year_id
+          FROM tbl_academic_years
+          WHERE LOWER(academic_year) = LOWER($1)
+            AND academic_year_id <> $2
+          LIMIT 1
+        `,
+        [
+          newAcademicYear,
+          academicYearId,
+        ]
+      );
 
       if (duplicate.rows.length > 0) {
         await client.query("ROLLBACK");
@@ -613,41 +414,33 @@ export async function updateAcademicYear(
           WHERE academic_year_id <> $1
             AND is_current = TRUE
         `,
-        [Number(academic_year_id)]
+        [academicYearId]
       );
     }
 
-    const result =
-      await client.query(
-        `
-          UPDATE tbl_academic_years
-          SET
-            academic_year = $1,
-            start_date = $2,
-            end_date = $3,
-            is_current = COALESCE($4, is_current),
-            is_active = COALESCE($5, is_active),
-            updated_at = CURRENT_TIMESTAMP
-          WHERE academic_year_id = $6
-          RETURNING
-            academic_year_id,
-            academic_year,
-            start_date,
-            end_date,
-            is_current,
-            is_active,
-            created_at,
-            updated_at
-        `,
-        [
-          newAcademicYear,
-          newStartDate,
-          newEndDate,
-          is_current ?? null,
-          is_active ?? null,
-          Number(academic_year_id)
-        ]
-      );
+    fields.push(
+      "updated_at = CURRENT_TIMESTAMP"
+    );
+
+    values.push(academicYearId);
+
+    const result = await client.query(
+      `
+        UPDATE tbl_academic_years
+        SET ${fields.join(", ")}
+        WHERE academic_year_id = $${values.length}
+        RETURNING
+          academic_year_id,
+          academic_year,
+          start_date,
+          end_date,
+          is_current,
+          is_active,
+          created_at,
+          updated_at
+      `,
+      values
+    );
 
     await client.query("COMMIT");
 
@@ -657,14 +450,8 @@ export async function updateAcademicYear(
       "Academic year updated successfully",
       result.rows[0]
     );
-
   } catch (error) {
     await client.query("ROLLBACK");
-
-    console.error(
-      "Update academic year error:",
-      error
-    );
 
     if (error.code === "23505") {
       return sendErrorResponse(
@@ -674,50 +461,30 @@ export async function updateAcademicYear(
       );
     }
 
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to update academic year";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
-
+    next(error);
   } finally {
     client.release();
   }
-}
+};
 
-export async function updateAcademicYearStatus(
+export const updateAcademicYearStatus = async (
   req,
-  res
-) {
+  res,
+  next
+) => {
   try {
     const { academic_year_id } = req.params;
+    const { is_active } = req.body;
 
-    const { is_active } = req.body || {};
-
-    if (
-      !academic_year_id ||
-      !/^\d+$/.test(academic_year_id) ||
-      Number(academic_year_id) <= 0
-    ) {
+    if (!isValidId(academic_year_id)) {
       return sendErrorResponse(
         res,
         400,
-        `Academic year ID ${academic_year_id} is invalid`
+        "Valid academic year ID is required"
       );
     }
 
-    if (typeof is_active !== "boolean") {
-      return sendErrorResponse(
-        res,
-        400,
-        "is_active is required and must be a boolean"
-      );
-    }
+    const academicYearId = Number(academic_year_id);
 
     const result = await pool.query(
       `
@@ -738,7 +505,7 @@ export async function updateAcademicYearStatus(
       `,
       [
         is_active,
-        Number(academic_year_id)
+        academicYearId,
       ]
     );
 
@@ -746,7 +513,7 @@ export async function updateAcademicYearStatus(
       return sendErrorResponse(
         res,
         404,
-        `Academic year ID ${academic_year_id} not found`
+        `Academic year with ID ${academicYearId} not found`
       );
     }
 
@@ -759,22 +526,7 @@ export async function updateAcademicYearStatus(
       } successfully`,
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Update academic year status error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to update academic year status";
-
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    next(error);
   }
-}
+};

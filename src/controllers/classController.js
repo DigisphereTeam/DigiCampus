@@ -1,5 +1,6 @@
 import pool from "../config/database.js";
 import { sendErrorResponse, sendSuccessResponse } from "../utils/response.js";
+import { isValidId } from "../utils/validation.js";
 
 const generateClassCode = (className) => {
   return className
@@ -30,7 +31,7 @@ export const createClasses = async (req, res, next) => {
       if (!item || typeof item !== "object") {
         errors.push({
           index,
-          message: "Invalid class data"
+          message: "Invalid class data",
         });
 
         return;
@@ -40,21 +41,7 @@ export const createClasses = async (req, res, next) => {
         errors.push({
           index,
           field: "class_name",
-          message: "Class name is required"
-        });
-      }
-
-      if (
-        item.display_order !== undefined &&
-        (
-          !Number.isInteger(Number(item.display_order)) ||
-          Number(item.display_order) < 0
-        )
-      ) {
-        errors.push({
-          index,
-          field: "display_order",
-          message: "Display order must be a non-negative integer"
+          message: "Class name is required",
         });
       }
 
@@ -65,7 +52,7 @@ export const createClasses = async (req, res, next) => {
         errors.push({
           index,
           field: "is_active",
-          message: "is_active must be a boolean"
+          message: "is_active must be a boolean",
         });
       }
     });
@@ -85,14 +72,10 @@ export const createClasses = async (req, res, next) => {
       return {
         class_name: className,
         class_code: generateClassCode(className),
-        display_order:
-          item.display_order !== undefined
-            ? Number(item.display_order)
-            : 0,
         is_active:
           item.is_active !== undefined
             ? item.is_active
-            : true
+            : true,
       };
     });
 
@@ -100,31 +83,29 @@ export const createClasses = async (req, res, next) => {
     const placeholders = [];
 
     preparedClasses.forEach((item, index) => {
-      const offset = index * 4;
+      const offset = index * 3;
 
       placeholders.push(
-        `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`
+        `($${offset + 1}, $${offset + 2}, $${offset + 3})`
       );
 
       values.push(
         item.class_name,
         item.class_code,
-        item.display_order,
         item.is_active
       );
     });
 
     const query = `
-            INSERT INTO tbl_classes (
-                class_name,
-                class_code,
-                display_order,
-                is_active
-            )
-            VALUES ${placeholders.join(", ")}
-            ON CONFLICT DO NOTHING
-            RETURNING *
-        `;
+      INSERT INTO tbl_classes (
+        class_name,
+        class_code,
+        is_active
+      )
+      VALUES ${placeholders.join(", ")}
+      ON CONFLICT DO NOTHING
+      RETURNING *
+    `;
 
     const result = await client.query(query, values);
 
@@ -134,7 +115,6 @@ export const createClasses = async (req, res, next) => {
       "Classes processed successfully",
       result.rows
     );
-
   } catch (error) {
     next(error);
   } finally {
@@ -146,57 +126,28 @@ export const createClass = async (req, res) => {
   try {
     const {
       class_name,
-      display_order = 0,
-      is_active = true
-    } = req.body || {};
-
-    const errors = {};
-
-    if (!class_name || !class_name.toString().trim()) {
-      errors.class_name = "Class name is required";
-    }
-
-    if (
-      !Number.isInteger(Number(display_order)) ||
-      Number(display_order) < 0
-    ) {
-      errors.display_order =
-        "Display order must be a non-negative integer";
-    }
-
-    if (typeof is_active !== "boolean") {
-      errors.is_active = "is_active must be a boolean";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
-
-    const className = class_name.toString().trim();
+      is_active,
+    } = req.body;
 
     const existingClass = await pool.query(
       `
-            SELECT class_id
-            FROM tbl_classes
-            WHERE LOWER(class_name) = LOWER($1)
-            `,
-      [className]
+        SELECT class_id
+        FROM tbl_classes
+        WHERE LOWER(class_name) = LOWER($1)
+        LIMIT 1
+      `,
+      [class_name]
     );
 
     if (existingClass.rows.length > 0) {
       return sendErrorResponse(
         res,
         409,
-        "Class name already exists"
+        "Class with this name already exists"
       );
     }
 
-    const classCode = generateClassCode(className);
+    const classCode = generateClassCode(class_name);
 
     if (!classCode) {
       return sendErrorResponse(
@@ -208,10 +159,11 @@ export const createClass = async (req, res) => {
 
     const existingCode = await pool.query(
       `
-            SELECT class_id
-            FROM tbl_classes
-            WHERE class_code = $1
-            `,
+        SELECT class_id
+        FROM tbl_classes
+        WHERE class_code = $1
+        LIMIT 1
+      `,
       [classCode]
     );
 
@@ -225,20 +177,18 @@ export const createClass = async (req, res) => {
 
     const result = await pool.query(
       `
-            INSERT INTO tbl_classes (
-                class_name,
-                class_code,
-                display_order,
-                is_active
-            )
-            VALUES ($1, $2, $3, $4)
-            RETURNING *
-            `,
+        INSERT INTO tbl_classes (
+          class_name,
+          class_code,
+          is_active
+        )
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `,
       [
-        className,
+        class_name,
         classCode,
-        Number(display_order),
-        is_active
+        is_active,
       ]
     );
 
@@ -248,14 +198,21 @@ export const createClass = async (req, res) => {
       "Class created successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error("Create Class Error:", error);
+    console.error("Create class error:", error);
+
+    if (error.code === "23505") {
+      return sendErrorResponse(
+        res,
+        409,
+        "Class with this name already exists"
+      );
+    }
 
     const message =
       process.env.NODE_ENV === "development"
         ? error.message
-        : "Internal server error";
+        : "Failed to create class";
 
     return sendErrorResponse(
       res,
@@ -270,16 +227,15 @@ export const getAllClasses = async (req, res) => {
     const { is_active } = req.query;
 
     let query = `
-            SELECT
-                class_id,
-                class_name,
-                class_code,
-                display_order,
-                is_active,
-                created_at,
-                updated_at
-            FROM tbl_classes
-        `;
+      SELECT
+        class_id,
+        class_name,
+        class_code,
+        is_active,
+        created_at,
+        updated_at
+      FROM tbl_classes
+    `;
 
     const values = [];
 
@@ -301,8 +257,8 @@ export const getAllClasses = async (req, res) => {
     }
 
     query += `
-            ORDER BY display_order ASC, class_id ASC
-        `;
+      ORDER BY class_id ASC
+    `;
 
     const result = await pool.query(query, values);
 
@@ -312,7 +268,6 @@ export const getAllClasses = async (req, res) => {
       "Classes fetched successfully",
       result.rows
     );
-
   } catch (error) {
     console.error("Get All Classes Error:", error);
 
@@ -333,11 +288,11 @@ export const getClassById = async (req, res) => {
   try {
     const { class_id } = req.params;
 
-    if (!class_id || !Number.isInteger(Number(class_id))) {
+    if (!isValidId(class_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Valid class_id is required"
+        "A valid class ID is required"
       );
     }
 
@@ -349,7 +304,6 @@ export const getClassById = async (req, res) => {
           class_id,
           class_name,
           class_code,
-          display_order,
           is_active,
           created_at,
           updated_at
@@ -373,7 +327,6 @@ export const getClassById = async (req, res) => {
       "Class fetched successfully",
       result.rows[0]
     );
-
   } catch (error) {
     console.error("Get Class By ID Error:", error);
 
@@ -396,14 +349,10 @@ export const updateClass = async (req, res) => {
 
     const {
       class_name,
-      display_order,
-      is_active
+      is_active,
     } = req.body;
 
-    if (
-      !class_id ||
-      !Number.isInteger(Number(class_id))
-    ) {
+    if (!isValidId(class_id)) {
       return sendErrorResponse(
         res,
         400,
@@ -413,7 +362,6 @@ export const updateClass = async (req, res) => {
 
     if (
       class_name === undefined &&
-      display_order === undefined &&
       is_active === undefined
     ) {
       return sendErrorResponse(
@@ -430,17 +378,6 @@ export const updateClass = async (req, res) => {
       !class_name.toString().trim()
     ) {
       errors.class_name = "Class name cannot be empty";
-    }
-
-    if (
-      display_order !== undefined &&
-      (
-        !Number.isInteger(Number(display_order)) ||
-        Number(display_order) < 0
-      )
-    ) {
-      errors.display_order =
-        "Display order must be a non-negative integer";
     }
 
     if (
@@ -462,10 +399,10 @@ export const updateClass = async (req, res) => {
 
     const existingClass = await pool.query(
       `
-            SELECT *
-            FROM tbl_classes
-            WHERE class_id = $1
-            `,
+        SELECT *
+        FROM tbl_classes
+        WHERE class_id = $1
+      `,
       [Number(class_id)]
     );
 
@@ -483,11 +420,6 @@ export const updateClass = async (req, res) => {
       class_name !== undefined
         ? class_name.toString().trim()
         : currentClass.class_name;
-
-    const updatedDisplayOrder =
-      display_order !== undefined
-        ? Number(display_order)
-        : currentClass.display_order;
 
     const updatedIsActive =
       is_active !== undefined
@@ -515,14 +447,14 @@ export const updateClass = async (req, res) => {
 
       const duplicateCode = await pool.query(
         `
-                SELECT class_id
-                FROM tbl_classes
-                WHERE class_code = $1
-                AND class_id != $2
-                `,
+          SELECT class_id
+          FROM tbl_classes
+          WHERE class_code = $1
+          AND class_id != $2
+        `,
         [
           updatedClassCode,
-          Number(class_id)
+          Number(class_id),
         ]
       );
 
@@ -537,14 +469,14 @@ export const updateClass = async (req, res) => {
 
     const duplicateName = await pool.query(
       `
-            SELECT class_id
-            FROM tbl_classes
-            WHERE LOWER(class_name) = LOWER($1)
-            AND class_id != $2
-            `,
+        SELECT class_id
+        FROM tbl_classes
+        WHERE LOWER(class_name) = LOWER($1)
+        AND class_id != $2
+      `,
       [
         updatedClassName,
-        Number(class_id)
+        Number(class_id),
       ]
     );
 
@@ -558,22 +490,20 @@ export const updateClass = async (req, res) => {
 
     const result = await pool.query(
       `
-            UPDATE tbl_classes
-            SET
-                class_name = $1,
-                class_code = $2,
-                display_order = $3,
-                is_active = $4,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE class_id = $5
-            RETURNING *
-            `,
+        UPDATE tbl_classes
+        SET
+          class_name = $1,
+          class_code = $2,
+          is_active = $3,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE class_id = $4
+        RETURNING *
+      `,
       [
         updatedClassName,
         updatedClassCode,
-        updatedDisplayOrder,
         updatedIsActive,
-        Number(class_id)
+        Number(class_id),
       ]
     );
 
@@ -583,7 +513,6 @@ export const updateClass = async (req, res) => {
       "Class updated successfully",
       result.rows[0]
     );
-
   } catch (error) {
     console.error("Update Class Error:", error);
 
@@ -599,26 +528,24 @@ export const deleteClass = async (req, res) => {
   try {
     const { class_id } = req.params;
 
-    if (
-      !class_id ||
-      !Number.isInteger(Number(class_id))
-    ) {
+    if (!isValidId(class_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Valid class_id is required"
+        "A valid class ID is required"
       );
     }
 
     const result = await pool.query(
       `
-            UPDATE tbl_classes
-            SET
-                is_active = FALSE,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE class_id = $1
-            RETURNING *
-            `,
+        UPDATE tbl_classes
+        SET
+          is_active = FALSE,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE class_id = $1
+        AND is_active = TRUE
+        RETURNING *
+      `,
       [Number(class_id)]
     );
 
@@ -626,7 +553,7 @@ export const deleteClass = async (req, res) => {
       return sendErrorResponse(
         res,
         404,
-        "Class not found"
+        `Class with ID ${class_id} not found`
       );
     }
 
@@ -636,7 +563,6 @@ export const deleteClass = async (req, res) => {
       "Class deleted successfully",
       result.rows[0]
     );
-
   } catch (error) {
     console.error("Delete Class Error:", error);
 
@@ -652,26 +578,23 @@ export const toggleClassStatus = async (req, res) => {
   try {
     const { class_id } = req.params;
 
-    if (
-      !class_id ||
-      !Number.isInteger(Number(class_id))
-    ) {
+    if (!isValidId(class_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Valid class_id is required"
+        "A valid class ID is required"
       );
     }
 
     const result = await pool.query(
       `
-            UPDATE tbl_classes
-            SET
-                is_active = NOT is_active,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE class_id = $1
-            RETURNING *
-            `,
+        UPDATE tbl_classes
+        SET
+          is_active = NOT is_active,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE class_id = $1
+        RETURNING *
+      `,
       [Number(class_id)]
     );
 
@@ -679,7 +602,7 @@ export const toggleClassStatus = async (req, res) => {
       return sendErrorResponse(
         res,
         404,
-        "Class not found"
+        `Class with ID ${class_id} not found`
       );
     }
 
@@ -694,7 +617,6 @@ export const toggleClassStatus = async (req, res) => {
       } successfully`,
       classData
     );
-
   } catch (error) {
     console.error("Toggle Class Status Error:", error);
 

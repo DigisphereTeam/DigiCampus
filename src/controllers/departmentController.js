@@ -1,73 +1,29 @@
 import pool from "../config/database.js";
 import {
   sendErrorResponse,
-  sendSuccessResponse
+  sendSuccessResponse,
 } from "../utils/response.js";
+import { isValidId } from "../utils/validation.js";
 
-
-export async function bulkCreateDepartments(req, res) {
+export const bulkCreateDepartments = async (req, res) => {
   try {
-    const { departments } = req.body || {};
+    const { departments } = req.body;
 
-    if (
-      !Array.isArray(departments) ||
-      departments.length === 0
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Departments must be a non-empty array"
-      );
-    }
-
-    const errors = [];
     const values = [];
     const placeholders = [];
 
     departments.forEach((department, index) => {
-      const {
-        department_name,
-        description
-      } = department || {};
+      const valueIndex = index * 2;
 
-      if (
-        !department_name ||
-        typeof department_name !== "string" ||
-        !department_name.trim()
-      ) {
-        errors.push({
-          index,
-          department_name:
-            "Department name is required"
-        });
-        return;
-      }
-
-      const name = department_name.trim();
-      const desc =
-        description?.toString().trim() || null;
-
-      const nameIndex =
-        values.length + 1;
-
-      const descIndex =
-        values.length + 2;
-
-      values.push(name, desc);
+      values.push(
+        department.department_name,
+        department.description || null
+      );
 
       placeholders.push(
-        `($${nameIndex}, $${descIndex})`
+        `($${valueIndex + 1}, $${valueIndex + 2})`
       );
     });
-
-    if (errors.length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
 
     const result = await pool.query(
       `
@@ -90,10 +46,7 @@ export async function bulkCreateDepartments(req, res) {
       result.rows
     );
   } catch (error) {
-    console.error(
-      "Bulk create departments error:",
-      error
-    );
+    console.error("Bulk create departments error:", error);
 
     return sendErrorResponse(
       res,
@@ -101,55 +54,14 @@ export async function bulkCreateDepartments(req, res) {
       "Failed to create departments"
     );
   }
-}
+};
 
-export async function createDepartment(req, res) {
+export const createDepartment = async (req, res) => {
   try {
-    const { department_name, description } = req.body || {};
-
-    const errors = {};
-
-    const departmentName =
-      typeof department_name === "string"
-        ? department_name.trim()
-        : "";
-
-    if (!departmentName) {
-      errors.department_name =
-        "Department name is required";
-    } else if (departmentName.length < 2) {
-      errors.department_name =
-        "Department name must be at least 2 characters";
-    } else if (departmentName.length > 100) {
-      errors.department_name =
-        "Department name must not exceed 100 characters";
-    }
-
-    let departmentDescription = null;
-
-    if (description !== undefined && description !== null) {
-      if (typeof description !== "string") {
-        errors.description =
-          "Description must be a string";
-      } else {
-        departmentDescription =
-          description.trim() || null;
-
-        if (departmentDescription?.length > 500) {
-          errors.description =
-            "Description must not exceed 500 characters";
-        }
-      }
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
+    const {
+      department_name,
+      description,
+    } = req.body;
 
     const result = await pool.query(
       `
@@ -161,8 +73,8 @@ export async function createDepartment(req, res) {
         RETURNING *
       `,
       [
-        departmentName,
-        departmentDescription
+        department_name,
+        description || null,
       ]
     );
 
@@ -172,12 +84,8 @@ export async function createDepartment(req, res) {
       "Department created successfully",
       result.rows[0]
     );
-
   } catch (error) {
-    console.error(
-      "Create department error:",
-      error
-    );
+    console.error("Create department error:", error);
 
     if (error.code === "23505") {
       return sendErrorResponse(
@@ -187,43 +95,19 @@ export async function createDepartment(req, res) {
       );
     }
 
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to create department";
-
     return sendErrorResponse(
       res,
       500,
-      message
+      "Failed to create department"
     );
   }
-}
+};
 
-export async function getAllDepartments(req, res) {
+export const getAllDepartments = async (req, res) => {
   try {
     const { is_active } = req.query;
 
-    const errors = {};
-
-    if (
-      is_active !== undefined &&
-      is_active !== "true" &&
-      is_active !== "false"
-    ) {
-      errors.is_active =
-        "is_active must be true or false";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
-
+    const values = [];
     let query = `
       SELECT
         department_id,
@@ -234,8 +118,6 @@ export async function getAllDepartments(req, res) {
         updated_at
       FROM tbl_departments
     `;
-
-    const values = [];
 
     if (is_active !== undefined) {
       values.push(is_active === "true");
@@ -260,42 +142,26 @@ export async function getAllDepartments(req, res) {
       "Departments fetched successfully",
       result.rows
     );
-
   } catch (error) {
-    console.error(
-      "Get departments error:",
-      error
-    );
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to fetch departments";
+    console.error("Get departments error:", error);
 
     return sendErrorResponse(
       res,
       500,
-      message
+      "Failed to fetch departments"
     );
   }
-}
+};
 
-export async function getDepartmentById(
-  req,
-  res
-) {
+export const getDepartmentById = async (req, res) => {
   try {
-    const { department_id } =
-      req.params;
+    const { department_id } = req.params;
 
-    if (
-      !department_id ||
-      !/^\d+$/.test(department_id)
-    ) {
+    if (!isValidId(department_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Invalid department ID"
+        "Valid department ID is required"
       );
     }
 
@@ -318,7 +184,7 @@ export async function getDepartmentById(
       return sendErrorResponse(
         res,
         404,
-        "Department not found"
+        `Department with ID ${department_id} not found`
       );
     }
 
@@ -329,10 +195,7 @@ export async function getDepartmentById(
       result.rows[0]
     );
   } catch (error) {
-    console.error(
-      "Get department error:",
-      error
-    );
+    console.error("Get department error:", error);
 
     return sendErrorResponse(
       res,
@@ -340,106 +203,51 @@ export async function getDepartmentById(
       "Failed to fetch department"
     );
   }
-}
+};
 
-export async function updateDepartment(
-  req,
-  res
-) {
+export const updateDepartment = async (req, res) => {
   try {
-    const { department_id } =
-      req.params;
+    const { department_id } = req.params;
 
     const {
       department_name,
       description,
-      is_active
-    } = req.body || {};
+      is_active,
+    } = req.body;
 
-    if (
-      !department_id ||
-      !/^\d+$/.test(department_id)
-    ) {
+    if (!isValidId(department_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Invalid department ID"
+        "Valid department ID is required"
       );
     }
 
-    const errors = {};
-
-    if (
-      department_name !== undefined &&
-      (
-        typeof department_name !== "string" ||
-        !department_name.trim()
-      )
-    ) {
-      errors.department_name =
-        "Department name cannot be empty";
-    }
-
-    if (
-      description !== undefined &&
-      description !== null &&
-      typeof description !== "string"
-    ) {
-      errors.description =
-        "Description must be a string";
-    }
-
-    if (
-      is_active !== undefined &&
-      typeof is_active !== "boolean"
-    ) {
-      errors.is_active =
-        "is_active must be true or false";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
-
-    const updates = [];
+    const fields = [];
     const values = [];
 
     if (department_name !== undefined) {
-      values.push(
-        department_name.trim()
-      );
-
-      updates.push(
+      values.push(department_name);
+      fields.push(
         `department_name = $${values.length}`
       );
     }
 
     if (description !== undefined) {
-      values.push(
-        description === null
-          ? null
-          : description.trim()
-      );
-
-      updates.push(
+      values.push(description);
+      fields.push(
         `description = $${values.length}`
       );
     }
 
     if (is_active !== undefined) {
       values.push(is_active);
-
-      updates.push(
+      fields.push(
         `is_active = $${values.length}`
       );
     }
 
-    if (updates.length === 0) {
+    if (fields.length === 0) {
       return sendErrorResponse(
         res,
         400,
@@ -453,7 +261,7 @@ export async function updateDepartment(
       `
         UPDATE tbl_departments
         SET
-          ${updates.join(", ")},
+          ${fields.join(", ")},
           updated_at = CURRENT_TIMESTAMP
         WHERE department_id = $${values.length}
         RETURNING *
@@ -465,7 +273,7 @@ export async function updateDepartment(
       return sendErrorResponse(
         res,
         404,
-        "Department not found"
+        `Department with ID ${department_id} not found`
       );
     }
 
@@ -476,10 +284,7 @@ export async function updateDepartment(
       result.rows[0]
     );
   } catch (error) {
-    console.error(
-      "Update department error:",
-      error
-    );
+    console.error("Update department error:", error);
 
     if (error.code === "23505") {
       return sendErrorResponse(
@@ -495,39 +300,18 @@ export async function updateDepartment(
       "Failed to update department"
     );
   }
-}
+};
 
-export async function updateDepartmentStatus(req, res) {
+export const updateDepartmentStatus = async (req, res) => {
   try {
     const { department_id } = req.params;
     const { is_active } = req.body;
 
-    const errors = {};
-
-    if (
-      !department_id ||
-      !Number.isInteger(Number(department_id)) ||
-      Number(department_id) <= 0
-    ) {
-      errors.department_id =
-        "Valid department ID is required";
-    }
-
-    if (
-      is_active === undefined ||
-      is_active === null ||
-      typeof is_active !== "boolean"
-    ) {
-      errors.is_active =
-        "is_active is required and must be a boolean";
-    }
-
-    if (Object.keys(errors).length > 0) {
+    if (!isValidId(department_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Validation failed",
-        errors
+        "Valid department ID is required"
       );
     }
 
@@ -548,7 +332,7 @@ export async function updateDepartmentStatus(req, res) {
       `,
       [
         is_active,
-        Number(department_id)
+        department_id,
       ]
     );
 
@@ -568,22 +352,16 @@ export async function updateDepartmentStatus(req, res) {
         : "Department deactivated successfully",
       result.rows[0]
     );
-
   } catch (error) {
     console.error(
       "Update department status error:",
       error
     );
 
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Failed to update department status";
-
     return sendErrorResponse(
       res,
       500,
-      message
+      "Failed to update department status"
     );
   }
-}
+};

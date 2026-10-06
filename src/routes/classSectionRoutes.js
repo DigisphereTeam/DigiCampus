@@ -11,6 +11,7 @@ import {
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/authorizeRoles.js";
+import { validateBulkCreateClassSections, validateCreateClassSection } from "../middleware/validation/classSectionValidation.js";
 
 const classSectionRouter = express.Router();
 
@@ -21,6 +22,7 @@ classSectionRouter.post(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateBulkCreateClassSections,
   bulkCreateClassSections
 );
 
@@ -31,6 +33,7 @@ classSectionRouter.post(
     "SUPER_ADMIN",
     "ADMIN"
   ),
+  validateCreateClassSection,
   createClassSection
 );
 

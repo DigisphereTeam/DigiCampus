@@ -3,57 +3,13 @@ import jwt from "jsonwebtoken";
 
 import pool from "../config/database.js";
 
-import {
-  sendErrorResponse,
-  sendSuccessResponse,
-} from "../utils/response.js";
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { sendErrorResponse, sendSuccessResponse } from "../utils/response.js";
 
 export async function login(req, res) {
   const { email, password } = req.body;
 
   try {
-    if (
-      typeof email !== "string" ||
-      !email.trim()
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Email is required"
-      );
-    }
-
-    if (
-      typeof password !== "string" ||
-      !password
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Password is required"
-      );
-    }
-
-    const cleanEmail =
-      email.trim().toLowerCase();
-
-    if (!emailRegex.test(cleanEmail)) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid email address"
-      );
-    }
-
-    if (!process.env.JWT_SECRET) {
-      return sendErrorResponse(
-        res,
-        500,
-        "JWT secret is not configured"
-      );
-    }
+    const cleanEmail = email.trim().toLowerCase();
 
     const result = await pool.query(
       `
@@ -68,39 +24,23 @@ export async function login(req, res) {
         WHERE LOWER(email) = LOWER($1)
         LIMIT 1
       `,
-      [cleanEmail]
+      [cleanEmail],
     );
 
     if (result.rows.length === 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid email or password"
-      );
+      return sendErrorResponse(res, 401, "Invalid email or password");
     }
 
     const user = result.rows[0];
 
     if (!user.is_active) {
-      return sendErrorResponse(
-        res,
-        403,
-        "Your account is inactive"
-      );
+      return sendErrorResponse(res, 403, "Your account is inactive");
     }
 
-    const isPasswordValid =
-      await bcrypt.compare(
-        password,
-        user.password_hash
-      );
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid email or password"
-      );
+      return sendErrorResponse(res, 401, "Invalid email or password");
     }
 
     const token = jwt.sign(
@@ -111,7 +51,7 @@ export async function login(req, res) {
       process.env.JWT_SECRET,
       {
         expiresIn: "7d",
-      }
+      },
     );
 
     const userData = {
@@ -122,26 +62,14 @@ export async function login(req, res) {
       is_active: user.is_active,
     };
 
-    return sendSuccessResponse(
-      res,
-      200,
-      "Login successful",
-      {
-        token,
-        user: userData,
-      }
-    );
+    return sendSuccessResponse(res, 200, "Login successful", {
+      token,
+      user: userData,
+    });
   } catch (error) {
-    console.error(
-      "Login error:",
-      error
-    );
+    console.error("Login error:", error);
 
-    return sendErrorResponse(
-      res,
-      500,
-      error.message || "Failed to login"
-    );
+    return sendErrorResponse(res, 500, "Failed to login");
   }
 }
 
@@ -150,11 +78,7 @@ export async function getMe(req, res) {
     const userId = Number(req.user?.user_id);
 
     if (!Number.isInteger(userId) || userId <= 0) {
-      return sendErrorResponse(
-        res,
-        401,
-        "Invalid authentication"
-      );
+      return sendErrorResponse(res, 401, "Invalid authentication");
     }
 
     const result = await pool.query(
@@ -171,44 +95,32 @@ export async function getMe(req, res) {
         WHERE user_id = $1
         LIMIT 1
       `,
-      [userId]
+      [userId],
     );
 
     if (result.rows.length === 0) {
-      return sendErrorResponse(
-        res,
-        404,
-        "User not found"
-      );
+      return sendErrorResponse(res, 404, "User not found");
     }
 
     const user = result.rows[0];
 
     if (!user.is_active) {
-      return sendErrorResponse(
-        res,
-        403,
-        "Your account is inactive"
-      );
+      return sendErrorResponse(res, 403, "Your account is inactive");
     }
 
     return sendSuccessResponse(
       res,
       200,
       "User details fetched successfully",
-      user
+      user,
     );
   } catch (error) {
-    console.error(
-      "Get me error:",
-      error
-    );
+    console.error("Get me error:", error);
 
     return sendErrorResponse(
       res,
       500,
-      error.message ||
-      "Failed to fetch user details"
+      error.message || "Failed to fetch user details",
     );
   }
 }
@@ -216,52 +128,9 @@ export async function getMe(req, res) {
 export async function changePassword(req, res) {
   const { user_id } = req.user;
 
-  const {
-    current_password,
-    new_password,
-  } = req.body;
+  const { current_password, new_password } = req.body;
 
   try {
-    // Validate required fields
-    if (!current_password || !new_password) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Current password and new password are required"
-      );
-    }
-
-    // Validate password types
-    if (
-      typeof current_password !== "string" ||
-      typeof new_password !== "string"
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Passwords must be strings"
-      );
-    }
-
-    // Validate new password length
-    if (new_password.length < 8) {
-      return sendErrorResponse(
-        res,
-        400,
-        "New password must be at least 8 characters"
-      );
-    }
-
-    // Check if new password is same as current password
-    if (current_password === new_password) {
-      return sendErrorResponse(
-        res,
-        400,
-        "New password must be different from current password"
-      );
-    }
-
-    // Get authenticated user
     const result = await pool.query(
       `
         SELECT
@@ -272,49 +141,38 @@ export async function changePassword(req, res) {
         WHERE user_id = $1
         LIMIT 1
       `,
-      [user_id]
+      [user_id],
     );
 
     if (result.rows.length === 0) {
-      return sendErrorResponse(
-        res,
-        404,
-        "User not found"
-      );
+      return sendErrorResponse(res, 404, "User not found");
     }
 
     const user = result.rows[0];
 
-    // Check account status
     if (!user.is_active) {
-      return sendErrorResponse(
-        res,
-        403,
-        "Your account is inactive"
-      );
+      return sendErrorResponse(res, 403, "Your account is inactive");
     }
 
-    // Verify current password
     const isPasswordValid = await bcrypt.compare(
       current_password,
-      user.password_hash
+      user.password_hash,
     );
 
     if (!isPasswordValid) {
+      return sendErrorResponse(res, 401, "Current password is incorrect");
+    }
+
+    if (current_password === new_password) {
       return sendErrorResponse(
         res,
-        401,
-        "Current password is incorrect"
+        400,
+        "New password must be different from current password",
       );
     }
 
-    // Hash new password
-    const passwordHash = await bcrypt.hash(
-      new_password,
-      10
-    );
+    const passwordHash = await bcrypt.hash(new_password, 10);
 
-    // Update password
     await pool.query(
       `
         UPDATE tbl_users
@@ -323,25 +181,13 @@ export async function changePassword(req, res) {
           updated_at = CURRENT_TIMESTAMP
         WHERE user_id = $2
       `,
-      [
-        passwordHash,
-        user_id,
-      ]
+      [passwordHash, user_id],
     );
 
-    return sendSuccessResponse(
-      res,
-      200,
-      "Password changed successfully"
-    );
-
+    return sendSuccessResponse(res, 200, "Password changed successfully");
   } catch (error) {
     console.error("Change password error:", error);
 
-    return sendErrorResponse(
-      res,
-      500,
-      "Failed to change password"
-    );
+    return sendErrorResponse(res, 500, "Failed to change password");
   }
 }

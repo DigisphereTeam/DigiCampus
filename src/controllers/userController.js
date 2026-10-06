@@ -1,176 +1,60 @@
 import bcrypt from "bcryptjs";
 import pool from "../config/database.js";
-import {
-  sendErrorResponse,
-  sendSuccessResponse,
-} from "../utils/response.js";
-
-const allowedRoles = [
-  "SUPER_ADMIN",
-  "ADMIN",
-  "TEACHER",
-  "ACCOUNTANT",
-  "STAFF",
-  "STUDENT",
-  "PARENT",
-];
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { allowedRoles } from "../constants/constants.js";
+import { sendErrorResponse, sendSuccessResponse } from "../utils/response.js";
+import { isValidId } from "../utils/validation.js";
 
 export async function createUser(req, res) {
-  const {
-    full_name,
-    email,
-    password,
-    role,
-  } = req.body;
+  const { full_name, email, password, role } = req.body || {};
 
   try {
-    if (
-      typeof full_name !== "string" ||
-      !full_name.trim()
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Full name is required"
-      );
-    }
-
-    if (
-      typeof email !== "string" ||
-      !email.trim()
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Email is required"
-      );
-    }
-
-    if (
-      typeof password !== "string" ||
-      !password
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Password is required"
-      );
-    }
-
-    if (
-      typeof role !== "string" ||
-      !role.trim()
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Role is required"
-      );
-    }
-
-    const cleanName = full_name.trim();
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanRole = role.trim().toUpperCase();
-
-    if (cleanName.length < 2) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Full name must be at least 2 characters"
-      );
-    }
-
-    if (!emailRegex.test(cleanEmail)) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid email address"
-      );
-    }
-
-    if (password.length < 6) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Password must be at least 6 characters"
-      );
-    }
-
-    if (!allowedRoles.includes(cleanRole)) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid user role"
-      );
-    }
-
     const existingUser = await pool.query(
       `
-        SELECT user_id
-        FROM tbl_users
-        WHERE LOWER(email) = LOWER($1)
+      SELECT user_id
+      FROM tbl_users
+      WHERE LOWER(email) = LOWER($1)
+      LIMIT 1
       `,
-      [cleanEmail]
+      [email],
     );
 
     if (existingUser.rows.length > 0) {
-      return sendErrorResponse(
-        res,
-        409,
-        "User with this email already exists"
-      );
+      return sendErrorResponse(res, 409, "User with this email already exists");
     }
 
-    const passwordHash = await bcrypt.hash(
-      password,
-      10
-    );
+    const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
       `
-        INSERT INTO tbl_users (
-          full_name,
-          email,
-          password_hash,
-          role
-        )
-        VALUES ($1, $2, $3, $4)
-        RETURNING
-          user_id,
-          full_name,
-          email,
-          role,
-          is_active,
-          created_at,
-          updated_at
+      INSERT INTO tbl_users (
+        full_name,
+        email,
+        password_hash,
+        role
+      )
+      VALUES ($1, $2, $3, $4)
+      RETURNING
+        user_id,
+        full_name,
+        email,
+        role,
+        is_active,
+        created_at,
+        updated_at
       `,
-      [
-        cleanName,
-        cleanEmail,
-        passwordHash,
-        cleanRole,
-      ]
+      [full_name, email, passwordHash, role],
     );
 
     return sendSuccessResponse(
       res,
       201,
       "User created successfully",
-      result.rows[0]
+      result.rows[0],
     );
   } catch (error) {
-    console.error(
-      "Create user error:",
-      error
-    );
+    console.error("Create user error:", error);
 
-    return sendErrorResponse(
-      res,
-      500,
-      error.message || "Failed to create user"
-    );
+    return sendErrorResponse(res, 500, "Failed to create user");
   }
 }
 
@@ -182,24 +66,10 @@ export async function getAllUsers(req, res) {
     let whereClause = "";
 
     if (role) {
-      const allowedRoles = [
-        "SUPER_ADMIN",
-        "ADMIN",
-        "TEACHER",
-        "ACCOUNTANT",
-        "STAFF",
-        "STUDENT",
-        "PARENT",
-      ];
-
       const userRole = role.toUpperCase();
 
       if (!allowedRoles.includes(userRole)) {
-        return sendErrorResponse(
-          res,
-          400,
-          "Invalid user role"
-        );
+        return sendErrorResponse(res, 400, "Invalid user role");
       }
 
       values.push(userRole);
@@ -220,41 +90,28 @@ export async function getAllUsers(req, res) {
         ${whereClause}
         ORDER BY user_id DESC
       `,
-      values
+      values,
     );
 
     return sendSuccessResponse(
       res,
       200,
       "Users fetched successfully",
-      result.rows
+      result.rows,
     );
   } catch (error) {
     console.error("Get users error:", error);
 
-    return sendErrorResponse(
-      res,
-      500,
-      "Failed to fetch users"
-    );
+    return sendErrorResponse(res, 500, "Failed to fetch users");
   }
 }
 
 export async function getUserById(req, res) {
   const { user_id } = req.params;
-
+  if (!isValidId(user_id)) {
+    return sendErrorResponse(res, 400, "Valid user ID is required");
+  }
   try {
-    if (
-      !user_id ||
-      !/^\d+$/.test(user_id)
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid user ID"
-      );
-    }
-
     const result = await pool.query(
       `
         SELECT
@@ -268,14 +125,14 @@ export async function getUserById(req, res) {
         FROM tbl_users
         WHERE user_id = $1
       `,
-      [user_id]
+      [user_id],
     );
 
     if (result.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        "User not found"
+        `User with ID ${user_id} not found`
       );
     }
 
@@ -283,19 +140,12 @@ export async function getUserById(req, res) {
       res,
       200,
       "User fetched successfully",
-      result.rows[0]
+      result.rows[0],
     );
   } catch (error) {
-    console.error(
-      "Get user by ID error:",
-      error
-    );
+    console.error("Get user by ID error:", error);
 
-    return sendErrorResponse(
-      res,
-      500,
-      error.message || "Failed to fetch user"
-    );
+    return sendErrorResponse(res, 500, error.message || "Failed to fetch user");
   }
 }
 
@@ -303,12 +153,8 @@ export async function updateUser(req, res) {
   const { user_id } = req.params;
 
   try {
-    if (!user_id || !/^\d+$/.test(user_id)) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid user ID"
-      );
+    if (!isValidId(user_id)) {
+      return sendErrorResponse(res, 400, "Valid user ID is required");
     }
 
     const existingUser = await pool.query(
@@ -317,37 +163,21 @@ export async function updateUser(req, res) {
         FROM tbl_users
         WHERE user_id = $1
       `,
-      [user_id]
+      [user_id],
     );
 
     if (existingUser.rows.length === 0) {
-      return sendErrorResponse(
-        res,
-        404,
-        "User not found"
-      );
+      return sendErrorResponse(res, 404, "User not found");
     }
 
-    const {
-      full_name,
-      email,
-      role,
-      is_active,
-    } = req.body;
+    const { full_name, email, role, is_active } = req.body;
 
     const updates = [];
     const values = [];
 
     if (full_name !== undefined) {
-      if (
-        typeof full_name !== "string" ||
-        !full_name.trim()
-      ) {
-        return sendErrorResponse(
-          res,
-          400,
-          "Full name cannot be empty"
-        );
+      if (typeof full_name !== "string" || !full_name.trim()) {
+        return sendErrorResponse(res, 400, "Full name cannot be empty");
       }
 
       const cleanName = full_name.trim();
@@ -356,37 +186,23 @@ export async function updateUser(req, res) {
         return sendErrorResponse(
           res,
           400,
-          "Full name must be at least 2 characters"
+          "Full name must be at least 2 characters",
         );
       }
 
       values.push(cleanName);
-      updates.push(
-        `full_name = $${values.length}`
-      );
+      updates.push(`full_name = $${values.length}`);
     }
 
     if (email !== undefined) {
-      if (
-        typeof email !== "string" ||
-        !email.trim()
-      ) {
-        return sendErrorResponse(
-          res,
-          400,
-          "Email cannot be empty"
-        );
+      if (typeof email !== "string" || !email.trim()) {
+        return sendErrorResponse(res, 400, "Email cannot be empty");
       }
 
-      const cleanEmail =
-        email.trim().toLowerCase();
+      const cleanEmail = email.trim().toLowerCase();
 
       if (!emailRegex.test(cleanEmail)) {
-        return sendErrorResponse(
-          res,
-          400,
-          "Invalid email address"
-        );
+        return sendErrorResponse(res, 400, "Invalid email address");
       }
 
       const emailExists = await pool.query(
@@ -397,78 +213,50 @@ export async function updateUser(req, res) {
           AND user_id != $2
           LIMIT 1
         `,
-        [cleanEmail, user_id]
+        [cleanEmail, user_id],
       );
 
       if (emailExists.rows.length > 0) {
-        return sendErrorResponse(
-          res,
-          409,
-          "Email already exists"
-        );
+        return sendErrorResponse(res, 409, "Email already exists");
       }
 
       values.push(cleanEmail);
-      updates.push(
-        `email = $${values.length}`
-      );
+      updates.push(`email = $${values.length}`);
     }
 
     if (role !== undefined) {
-      if (
-        typeof role !== "string" ||
-        !role.trim()
-      ) {
-        return sendErrorResponse(
-          res,
-          400,
-          "Role cannot be empty"
-        );
+      if (typeof role !== "string" || !role.trim()) {
+        return sendErrorResponse(res, 400, "Role cannot be empty");
       }
 
-      const cleanRole =
-        role.trim().toUpperCase();
+      const cleanRole = role.trim().toUpperCase();
 
       if (!allowedRoles.includes(cleanRole)) {
-        return sendErrorResponse(
-          res,
-          400,
-          "Invalid user role"
-        );
+        return sendErrorResponse(res, 400, "Invalid user role");
       }
 
       values.push(cleanRole);
-      updates.push(
-        `role = $${values.length}`
-      );
+      updates.push(`role = $${values.length}`);
     }
 
     if (is_active !== undefined) {
       if (typeof is_active !== "boolean") {
-        return sendErrorResponse(
-          res,
-          400,
-          "is_active must be true or false"
-        );
+        return sendErrorResponse(res, 400, "is_active must be true or false");
       }
 
       values.push(is_active);
-      updates.push(
-        `is_active = $${values.length}`
-      );
+      updates.push(`is_active = $${values.length}`);
     }
 
     if (updates.length === 0) {
       return sendErrorResponse(
         res,
         400,
-        "At least one field is required to update"
+        "At least one field is required to update",
       );
     }
 
-    updates.push(
-      "updated_at = CURRENT_TIMESTAMP"
-    );
+    updates.push("updated_at = CURRENT_TIMESTAMP");
 
     values.push(user_id);
 
@@ -487,43 +275,32 @@ export async function updateUser(req, res) {
           created_at,
           updated_at
       `,
-      values
+      values,
     );
 
     return sendSuccessResponse(
       res,
       200,
       "User updated successfully",
-      result.rows[0]
+      result.rows[0],
     );
   } catch (error) {
-    console.error(
-      "Update user error:",
-      error
-    );
+    console.error("Update user error:", error);
 
     return sendErrorResponse(
       res,
       500,
-      error.message ||
-      "Failed to update user"
+      error.message || "Failed to update user",
     );
   }
 }
 
-export async function deleteUser(req, res) {
+export async function deactivateUser(req, res) {
   const { user_id } = req.params;
 
   try {
-    if (
-      !user_id ||
-      !/^\d+$/.test(user_id)
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Invalid user ID"
-      );
+    if (!user_id || !/^\d+$/.test(user_id) || Number(user_id) <= 0) {
+      return sendErrorResponse(res, 400, "Invalid user ID");
     }
 
     const result = await pool.query(
@@ -541,33 +318,27 @@ export async function deleteUser(req, res) {
           is_active,
           updated_at
       `,
-      [user_id]
+      [Number(user_id)],
     );
 
     if (result.rows.length === 0) {
-      return sendErrorResponse(
-        res,
-        404,
-        "User not found"
-      );
+      return sendErrorResponse(res, 404, "User not found");
     }
 
     return sendSuccessResponse(
       res,
       200,
       "User deactivated successfully",
-      result.rows[0]
+      result.rows[0],
     );
   } catch (error) {
-    console.error(
-      "Deactivate user error:",
-      error
-    );
+    console.error("Deactivate user error:", error);
 
-    return sendErrorResponse(
-      res,
-      500,
-      error.message || "Failed to deactivate user"
-    );
+    const message =
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Failed to deactivate user";
+
+    return sendErrorResponse(res, 500, message);
   }
 }

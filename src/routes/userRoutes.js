@@ -2,7 +2,7 @@ import express from "express";
 
 import {
   createUser,
-  deleteUser,
+  deactivateUser,
   getAllUsers,
   getUserById,
   updateUser,
@@ -10,39 +10,37 @@ import {
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/authorizeRoles.js";
+import { validateCreateUser } from "../middleware/validation/userValidation.js";
 
 const userRouter = express.Router();
 
 userRouter.use(authMiddleware);
 
-userRouter.get(
+userRouter.post(
   "/",
-  authorizeRoles("SUPER_ADMIN", "ADMIN"),
-  getAllUsers
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  validateCreateUser,
+  createUser,
 );
+
+userRouter.get("/", authorizeRoles("SUPER_ADMIN", "ADMIN"), getAllUsers);
 
 userRouter.get(
   "/:user_id",
-  authorizeRoles("SUPER_ADMIN", "ADMIN"),
-  getUserById
-);
-
-userRouter.post(
-  "/",
-  authorizeRoles("SUPER_ADMIN", "ADMIN"),
-  createUser
+  authorizeRoles("SUPER_ADMIN", "ADMIN", "ACCOUNTANT"),
+  getUserById,
 );
 
 userRouter.patch(
   "/:user_id",
   authorizeRoles("SUPER_ADMIN", "ADMIN"),
-  updateUser
+  updateUser,
 );
 
 userRouter.delete(
   "/:user_id",
-  authorizeRoles("SUPER_ADMIN"),
-  deleteUser
+  authorizeRoles("SUPER_ADMIN", "ADMIN"),
+  deactivateUser,
 );
 
 export default userRouter;

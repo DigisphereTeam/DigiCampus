@@ -1,5 +1,5 @@
 {
-  "name": "api-school-management-system-com",
+  "name": "DigiCampus",
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
@@ -8,14 +8,13 @@
     "dev": "nodemon server.js"
   },
   "keywords": [
-    "school",
-    "management",
-    "system",
-    "api"
+    "DigiCampus",
+    "Backend",
+    "express"
   ],
   "author": "",
   "license": "ISC",
-  "description": "School Management System API",
+  "description": "DigiCampus",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",

@@ -14,10 +14,10 @@ import authMiddleware from "../middleware/authMiddleware.js";
 import authorizeRoles from "../middleware/authorizeRoles.js";
 
 const classRouter = express.Router();
+classRouter.use(authMiddleware)
 
 classRouter.post(
   "/bulk",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -27,7 +27,6 @@ classRouter.post(
 
 classRouter.post(
   "/",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -37,7 +36,6 @@ classRouter.post(
 
 classRouter.get(
   "/",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -47,7 +45,6 @@ classRouter.get(
 
 classRouter.get(
   "/:class_id",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -57,7 +54,6 @@ classRouter.get(
 
 classRouter.patch(
   "/:class_id",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -67,7 +63,6 @@ classRouter.patch(
 
 classRouter.patch(
   "/:class_id/status",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -77,7 +72,6 @@ classRouter.patch(
 
 classRouter.delete(
   "/:class_id",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"
@@ -87,7 +81,6 @@ classRouter.delete(
 
 classRouter.patch(
   "/:class_id/status",
-  authMiddleware,
   authorizeRoles(
     "SUPER_ADMIN",
     "ADMIN"

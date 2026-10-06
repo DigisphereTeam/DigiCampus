@@ -1,86 +1,92 @@
 import jwt from "jsonwebtoken";
 
-import {
-  sendErrorResponse,
-} from "../utils/response.js";
+import pool from "../config/database.js";
+import { config } from "../config/env.js";
+import { sendErrorResponse } from "../utils/response.js";
 
-export default function authMiddleware(
-  req,
-  res,
-  next
-) {
+export default async function authMiddleware(req, res, next) {
   try {
-    const authHeader =
-      req.headers.authorization;
+    const authHeader = req.headers.authorization;
 
-    if (
-      !authHeader ||
-      !authHeader.startsWith("Bearer ")
-    ) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return sendErrorResponse(
         res,
         401,
-        "Authentication token is required"
+        "Authentication token is required",
       );
     }
 
-    const token =
-      authHeader.split(" ")[1];
+    const token = authHeader.split(" ")[1];
 
     if (!token) {
       return sendErrorResponse(
         res,
         401,
-        "Authentication token is required"
+        "Authentication token is required",
       );
     }
 
-    if (!process.env.JWT_SECRET) {
+    if (!config.jwtSecret) {
       return sendErrorResponse(
         res,
         500,
-        "JWT secret is not configured"
+        "JWT secret is not configured",
       );
     }
 
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET
+    const decoded = jwt.verify(token, config.jwtSecret);
+
+    const result = await pool.query(
+      `
+      SELECT
+        user_id,
+        email,
+        role,
+        is_active
+      FROM tbl_users
+      WHERE user_id = $1
+      `,
+      [decoded.user_id],
     );
 
-    req.user = decoded;
+    if (result.rows.length === 0) {
+      return sendErrorResponse(res, 401, "User not found");
+    }
+
+    const user = result.rows[0];
+
+    if (!user.is_active) {
+      return sendErrorResponse(res, 403, "User account is inactive");
+    }
+
+    req.user = user;
 
     next();
   } catch (error) {
-    console.error(
-      "Auth middleware error:",
-      error
-    );
+    console.error("Auth middleware error:", error);
 
     if (error.name === "TokenExpiredError") {
       return sendErrorResponse(
         res,
         401,
-        "Authentication token has expired"
+        "Authentication token has expired",
       );
     }
 
-    if (
-      error.name ===
-      "JsonWebTokenError"
-    ) {
+    if (error.name === "JsonWebTokenError") {
       return sendErrorResponse(
         res,
         401,
-        "Invalid authentication token"
+        "Invalid authentication token",
       );
     }
 
     return sendErrorResponse(
       res,
       500,
-      error.message ||
-      "Authentication failed"
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Authentication failed",
     );
   }
 }

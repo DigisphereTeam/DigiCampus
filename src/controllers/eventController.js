@@ -1,25 +1,15 @@
 import pool from "../config/database.js";
+import {
+  allowedTransitions,
+  EVENT_STATUSES,
+} from "../constants/constants.js";
 
 import {
   sendErrorResponse,
-  sendSuccessResponse
+  sendSuccessResponse,
 } from "../utils/response.js";
 
-const EVENT_STATUSES = [
-  "PENDING",
-  "APPROVED",
-  "ONGOING",
-  "COMPLETED",
-  "CANCELLED"
-];
-
-const allowedTransitions = {
-  PENDING: ["APPROVED", "CANCELLED"],
-  APPROVED: ["ONGOING", "CANCELLED"],
-  ONGOING: ["COMPLETED"],
-  COMPLETED: [],
-  CANCELLED: []
-};
+import { isValidId } from "../utils/validation.js";
 
 export const createEvent = async (req, res) => {
   try {
@@ -29,90 +19,45 @@ export const createEvent = async (req, res) => {
       event_date,
       event_slot,
       description,
-      status
-    } = req.body || {};
-
-    const errors = {};
-
-    if (!event_name || !event_name.toString().trim()) {
-      errors.event_name = "Event name is required";
-    }
-
-    if (!category || !category.toString().trim()) {
-      errors.category = "Category is required";
-    }
-
-    if (!event_date) {
-      errors.event_date = "Event date is required";
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(event_date)) {
-      errors.event_date =
-        "Event date must be in YYYY-MM-DD format";
-    } else {
-      const dateCheck = await pool.query(
-        `SELECT $1::date < CURRENT_DATE AS is_past_date`,
-        [event_date]
-      );
-
-      if (dateCheck.rows[0].is_past_date) {
-        errors.event_date = "Event date cannot be in the past";
-      }
-    }
-
-    if (!event_slot || !event_slot.toString().trim()) {
-      errors.event_slot = "Event slot is required";
-    }
-
-    if (!description || !description.toString().trim()) {
-      errors.description = "Description is required";
-    }
-
-    if (
-      status !== undefined &&
-      !EVENT_STATUSES.includes(status)
-    ) {
-      errors.status =
-        "Invalid status. Allowed values are PENDING, APPROVED, ONGOING, COMPLETED, CANCELLED";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
+      venue,
+      organizer,
+      status,
+    } = req.body;
 
     const result = await pool.query(
       `
-      INSERT INTO tbl_events (
-        event_name,
-        category,
-        event_date,
-        event_slot,
-        description,
-        status
-      )
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (event_date, event_slot)
-      DO NOTHING
-      RETURNING *
+        INSERT INTO tbl_events (
+          event_name,
+          category,
+          event_date,
+          event_slot,
+          description,
+          venue,
+          organizer,
+          status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (event_date, event_slot)
+        DO NOTHING
+        RETURNING *
       `,
       [
-        event_name.toString().trim(),
-        category.toString().trim(),
+        event_name.trim(),
+        category.trim(),
         event_date,
-        event_slot.toString().trim(),
-        description.toString().trim(),
-        status || "PENDING"
-      ]
+        event_slot.trim(),
+        description?.trim() || null,
+        venue?.trim() || null,
+        organizer?.trim() || null,
+        status || "PENDING",
+      ],
     );
 
     if (result.rows.length === 0) {
       return sendErrorResponse(
         res,
         409,
-        "Event already exists for the selected date and slot"
+        "Event already exists for the selected date and slot",
       );
     }
 
@@ -120,21 +65,17 @@ export const createEvent = async (req, res) => {
       res,
       201,
       "Event created successfully",
-      result.rows[0]
+      result.rows[0],
     );
-
   } catch (error) {
     console.error("Create Event Error:", error);
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Internal server error";
 
     return sendErrorResponse(
       res,
       500,
-      message
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Failed to create event",
     );
   }
 };
@@ -194,14 +135,14 @@ export const getEventDashboard = async (req, res) => {
         END,
         updated_at = CURRENT_TIMESTAMP
       WHERE status IN ('PENDING', 'APPROVED', 'ONGOING')
-      `
+      `,
     );
 
     const [
       statisticsResult,
       upcomingEventsResult,
       pastEventsResult,
-      pendingApprovalResult
+      pendingApprovalResult,
     ] = await Promise.all([
       pool.query(
         `
@@ -215,7 +156,8 @@ export const getEventDashboard = async (req, res) => {
 
           COUNT(*) FILTER (
             WHERE event_date >= DATE_TRUNC('month', CURRENT_DATE)
-              AND event_date < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+              AND event_date < DATE_TRUNC('month', CURRENT_DATE)
+                + INTERVAL '1 month'
           ) AS this_month_events,
 
           COUNT(*) FILTER (
@@ -227,7 +169,7 @@ export const getEventDashboard = async (req, res) => {
           ) AS pending_approvals
 
         FROM tbl_events
-        `
+        `,
       ),
 
       pool.query(
@@ -239,6 +181,8 @@ export const getEventDashboard = async (req, res) => {
           event_date,
           event_slot,
           description,
+          venue,
+          organizer,
           status,
           created_at,
           updated_at
@@ -247,7 +191,7 @@ export const getEventDashboard = async (req, res) => {
           status IN ('APPROVED', 'ONGOING')
           AND event_date >= CURRENT_DATE
         ORDER BY event_date ASC, event_id ASC
-        `
+        `,
       ),
 
       pool.query(
@@ -259,14 +203,15 @@ export const getEventDashboard = async (req, res) => {
           event_date,
           event_slot,
           description,
+          venue,
+          organizer,
           status,
           created_at,
           updated_at
         FROM tbl_events
-        WHERE
-          status IN ('COMPLETED', 'CANCELLED')
+        WHERE status IN ('COMPLETED', 'CANCELLED')
         ORDER BY event_date DESC, event_id DESC
-        `
+        `,
       ),
 
       pool.query(
@@ -278,14 +223,16 @@ export const getEventDashboard = async (req, res) => {
           event_date,
           event_slot,
           description,
+          venue,
+          organizer,
           status,
           created_at,
           updated_at
         FROM tbl_events
         WHERE status = 'PENDING'
         ORDER BY event_date ASC, event_id ASC
-        `
-      )
+        `,
+      ),
     ]);
 
     const statistics = statisticsResult.rows[0];
@@ -300,14 +247,14 @@ export const getEventDashboard = async (req, res) => {
           upcoming_events: Number(statistics.upcoming_events),
           this_month_events: Number(statistics.this_month_events),
           completed_events: Number(statistics.completed_events),
-          pending_approvals: Number(statistics.pending_approvals)
+          pending_approvals: Number(statistics.pending_approvals),
         },
+
         upcoming_events: upcomingEventsResult.rows,
         past_events: pastEventsResult.rows,
-        pending_approval_events: pendingApprovalResult.rows
-      }
+        pending_approval_events: pendingApprovalResult.rows,
+      },
     );
-
   } catch (error) {
     console.error("Get Event Dashboard Error:", error);
 
@@ -316,17 +263,38 @@ export const getEventDashboard = async (req, res) => {
         ? error.message
         : "Internal server error";
 
-    return sendErrorResponse(
-      res,
-      500,
-      message
-    );
+    return sendErrorResponse(res, 500, message);
   }
 };
 
 export const getAllEvents = async (req, res) => {
   try {
-    const { status } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      status: queryStatus,
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
+
+    if (!Number.isInteger(pageNumber) || pageNumber <= 0) {
+      return sendErrorResponse(res, 400, "Invalid page");
+    }
+
+    if (
+      !Number.isInteger(limitNumber) ||
+      limitNumber <= 0 ||
+      limitNumber > 100
+    ) {
+      return sendErrorResponse(
+        res,
+        400,
+        "Invalid limit. Maximum limit is 100",
+      );
+    }
+
+    const status = queryStatus?.trim().toUpperCase();
 
     if (
       status !== undefined &&
@@ -335,10 +303,14 @@ export const getAllEvents = async (req, res) => {
       return sendErrorResponse(
         res,
         400,
-        "Invalid status. Allowed values are PENDING, APPROVED, ONGOING, COMPLETED, CANCELLED"
+        "Invalid status. Allowed values are PENDING, APPROVED, ONGOING, COMPLETED, CANCELLED",
       );
     }
 
+    /*
+     * Automatically update event statuses based on
+     * event date and event slot.
+     */
     await pool.query(
       `
       UPDATE tbl_events
@@ -370,25 +342,7 @@ export const getAllEvents = async (req, res) => {
                )
             THEN 'ONGOING'
 
-          WHEN status = 'APPROVED'
-               AND (
-                 event_date < CURRENT_DATE
-                 OR (
-                   event_date = CURRENT_DATE
-                   AND CURRENT_TIME >= (
-                     TRIM(
-                       SPLIT_PART(
-                         REPLACE(event_slot, ' ', ''),
-                         '-',
-                         2
-                       )
-                     )::TIME
-                   )
-                 )
-               )
-            THEN 'COMPLETED'
-
-          WHEN status = 'ONGOING'
+          WHEN status IN ('APPROVED', 'ONGOING')
                AND (
                  event_date < CURRENT_DATE
                  OR (
@@ -409,44 +363,90 @@ export const getAllEvents = async (req, res) => {
           ELSE status
         END,
         updated_at = CURRENT_TIMESTAMP
-      WHERE
-        (
-          status = 'PENDING'
-          AND event_date < CURRENT_DATE
-        )
-        OR
-        (
-          status = 'APPROVED'
-          AND (
-            event_date = CURRENT_DATE
-            OR event_date < CURRENT_DATE
-          )
-        )
-        OR
-        (
-          status = 'ONGOING'
-          AND (
-            event_date < CURRENT_DATE
-            OR (
-              event_date = CURRENT_DATE
-              AND CURRENT_TIME >= (
-                TRIM(
-                  SPLIT_PART(
-                    REPLACE(event_slot, ' ', ''),
-                    '-',
-                    2
-                  )
-                )::TIME
-              )
-            )
-          )
-        )
-      `
+
+      WHERE status IN ('PENDING', 'APPROVED', 'ONGOING')
+      `,
     );
 
-    const queryParams = [];
+    const conditions = [];
+    const values = [];
 
-    let query = `
+    if (status !== undefined) {
+      values.push(status);
+
+      conditions.push(
+        `status = $${values.length}`,
+      );
+    }
+
+    const whereClause =
+      conditions.length > 0
+        ? `WHERE ${conditions.join(" AND ")}`
+        : "";
+
+    const countResult = await pool.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM tbl_events
+      ${whereClause}
+      `,
+      values,
+    );
+
+    const total = Number(
+      countResult.rows[0].total,
+    );
+
+    const statisticsResult = await pool.query(
+      `
+      SELECT
+        COUNT(*)::INTEGER AS total_events,
+
+        COUNT(
+          CASE
+            WHEN event_date >= CURRENT_DATE
+              AND status NOT IN ('COMPLETED', 'CANCELLED')
+            THEN 1
+          END
+        )::INTEGER AS upcoming_events,
+
+        COUNT(
+          CASE
+            WHEN event_date >= DATE_TRUNC('month', CURRENT_DATE)
+              AND event_date < (
+                DATE_TRUNC('month', CURRENT_DATE)
+                + INTERVAL '1 month'
+              )
+            THEN 1
+          END
+        )::INTEGER AS this_month_events,
+
+        COUNT(
+          CASE
+            WHEN status = 'COMPLETED'
+            THEN 1
+          END
+        )::INTEGER AS completed_events
+
+      FROM tbl_events
+      `,
+    );
+
+    const statistics = statisticsResult.rows[0];
+
+    const offset =
+      (pageNumber - 1) * limitNumber;
+
+    const dataValues = [...values];
+
+    dataValues.push(limitNumber);
+    const limitIndex = dataValues.length;
+
+    dataValues.push(offset);
+    const offsetIndex = dataValues.length;
+
+    const result = await pool.query(
+      `
       SELECT
         event_id,
         event_name,
@@ -454,38 +454,67 @@ export const getAllEvents = async (req, res) => {
         event_date,
         event_slot,
         description,
+        venue,
+        organizer,
         status,
         created_at,
         updated_at
       FROM tbl_events
-    `;
-
-    if (status) {
-      query += `
-        WHERE status = $1
-      `;
-
-      queryParams.push(status);
-    }
-
-    query += `
-      ORDER BY event_date ASC, event_id ASC
-    `;
-
-    const result = await pool.query(
-      query,
-      queryParams
+      ${whereClause}
+      ORDER BY
+        event_date ASC,
+        event_id ASC
+      LIMIT $${limitIndex}
+      OFFSET $${offsetIndex}
+      `,
+      dataValues,
     );
 
     return sendSuccessResponse(
       res,
       200,
       "Events fetched successfully",
-      result.rows
-    );
+      {
+        filters: {
+          status: status ?? null,
+        },
 
+        event_statistics: {
+          total_events: statistics.total_events,
+          upcoming_events: statistics.upcoming_events,
+          this_month_events: statistics.this_month_events,
+          completed_events: statistics.completed_events,
+        },
+
+        pagination_info: {
+          page: pageNumber,
+          limit: limitNumber,
+
+          prev_page:
+            pageNumber > 1
+              ? pageNumber - 1
+              : null,
+
+          next_page:
+            pageNumber <
+              Math.ceil(total / limitNumber)
+              ? pageNumber + 1
+              : null,
+
+          total,
+          total_pages: Math.ceil(
+            total / limitNumber,
+          ),
+        },
+
+        events: result.rows,
+      },
+    );
   } catch (error) {
-    console.error("Get All Events Error:", error);
+    console.error(
+      "Get All Events Error:",
+      error,
+    );
 
     const message =
       process.env.NODE_ENV === "development"
@@ -495,7 +524,7 @@ export const getAllEvents = async (req, res) => {
     return sendErrorResponse(
       res,
       500,
-      message
+      message,
     );
   }
 };
@@ -504,15 +533,11 @@ export const getEventById = async (req, res) => {
   try {
     const { event_id } = req.params;
 
-    if (
-      !event_id ||
-      !Number.isInteger(Number(event_id)) ||
-      Number(event_id) <= 0
-    ) {
+    if (!isValidId(event_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Valid event_id is required"
+        "Valid event ID is required",
       );
     }
 
@@ -525,20 +550,22 @@ export const getEventById = async (req, res) => {
         event_date,
         event_slot,
         description,
+        venue,
+        organizer,
         status,
         created_at,
         updated_at
       FROM tbl_events
       WHERE event_id = $1
       `,
-      [Number(event_id)]
+      [Number(event_id)],
     );
 
     if (result.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        "Event not found"
+        `Event with ID ${event_id} not found`,
       );
     }
 
@@ -546,11 +573,13 @@ export const getEventById = async (req, res) => {
       res,
       200,
       "Event fetched successfully",
-      result.rows[0]
+      result.rows[0],
     );
-
   } catch (error) {
-    console.error("Get Event By ID Error:", error);
+    console.error(
+      "Get Event By ID Error:",
+      error,
+    );
 
     const message =
       process.env.NODE_ENV === "development"
@@ -560,7 +589,7 @@ export const getEventById = async (req, res) => {
     return sendErrorResponse(
       res,
       500,
-      message
+      message,
     );
   }
 };
@@ -569,167 +598,123 @@ export const updateEvent = async (req, res) => {
   try {
     const { event_id } = req.params;
 
+    if (!isValidId(event_id)) {
+      return sendErrorResponse(
+        res,
+        400,
+        "Valid event ID is required",
+      );
+    }
+
     const {
       event_name,
       category,
       event_date,
       event_slot,
-      description
-    } = req.body || {};
-
-    if (
-      !event_id ||
-      !Number.isInteger(Number(event_id)) ||
-      Number(event_id) <= 0
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Valid event_id is required"
-      );
-    }
-
-    if (
-      event_name === undefined &&
-      category === undefined &&
-      event_date === undefined &&
-      event_slot === undefined &&
-      description === undefined
-    ) {
-      return sendErrorResponse(
-        res,
-        400,
-        "At least one field is required for update"
-      );
-    }
-
-    const errors = {};
-
-    if (
-      event_name !== undefined &&
-      !event_name.toString().trim()
-    ) {
-      errors.event_name =
-        "Event name cannot be empty";
-    }
-
-    if (
-      category !== undefined &&
-      !category.toString().trim()
-    ) {
-      errors.category =
-        "Category cannot be empty";
-    }
-
-    if (
-      event_date !== undefined &&
-      !/^\d{4}-\d{2}-\d{2}$/.test(event_date)
-    ) {
-      errors.event_date =
-        "Event date must be in YYYY-MM-DD format";
-    }
-
-    if (
-      event_slot !== undefined &&
-      !event_slot.toString().trim()
-    ) {
-      errors.event_slot =
-        "Event slot cannot be empty";
-    }
-
-    if (
-      description !== undefined &&
-      !description.toString().trim()
-    ) {
-      errors.description =
-        "Description cannot be empty";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      return sendErrorResponse(
-        res,
-        400,
-        "Validation failed",
-        errors
-      );
-    }
+      description,
+      venue,
+      organizer,
+    } = req.body;
 
     const existingEvent = await pool.query(
       `
-      SELECT *
+      SELECT event_id
       FROM tbl_events
       WHERE event_id = $1
       `,
-      [Number(event_id)]
+      [Number(event_id)],
     );
 
     if (existingEvent.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        "Event not found"
+        `Event with ID ${event_id} not found`,
       );
     }
 
-    const currentEvent = existingEvent.rows[0];
+    const fields = [];
+    const values = [];
+
+    const updates = {
+      event_name,
+      category,
+      event_date,
+      event_slot,
+      description,
+      venue,
+      organizer,
+    };
+
+    Object.entries(updates).forEach(
+      ([field, value]) => {
+        if (value !== undefined) {
+          fields.push(
+            `${field} = $${values.length + 1}`,
+          );
+
+          values.push(
+            typeof value === "string"
+              ? value.trim()
+              : value,
+          );
+        }
+      },
+    );
+
+    /*
+     * Nothing except updated_at was supplied.
+     */
+    if (fields.length === 0) {
+      return sendErrorResponse(
+        res,
+        400,
+        "No fields provided for update",
+      );
+    }
+
+    fields.push(
+      "updated_at = CURRENT_TIMESTAMP",
+    );
+
+    values.push(Number(event_id));
 
     const result = await pool.query(
       `
       UPDATE tbl_events
-      SET
-        event_name = $1,
-        category = $2,
-        event_date = $3,
-        event_slot = $4,
-        description = $5,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE event_id = $6
+      SET ${fields.join(", ")}
+      WHERE event_id = $${values.length}
       RETURNING *
       `,
-      [
-        event_name !== undefined
-          ? event_name.toString().trim()
-          : currentEvent.event_name,
-
-        category !== undefined
-          ? category.toString().trim()
-          : currentEvent.category,
-
-        event_date !== undefined
-          ? event_date
-          : currentEvent.event_date,
-
-        event_slot !== undefined
-          ? event_slot.toString().trim()
-          : currentEvent.event_slot,
-
-        description !== undefined
-          ? description.toString().trim()
-          : currentEvent.description,
-
-        Number(event_id)
-      ]
+      values,
     );
 
     return sendSuccessResponse(
       res,
       200,
       "Event updated successfully",
-      result.rows[0]
+      result.rows[0],
+    );
+  } catch (error) {
+    console.error(
+      "Update Event Error:",
+      error,
     );
 
-  } catch (error) {
-    console.error("Update Event Error:", error);
-
-    const message =
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Internal server error";
+    if (error.code === "23505") {
+      return sendErrorResponse(
+        res,
+        409,
+        "An event already exists for the selected date and time slot",
+      );
+    }
 
     return sendErrorResponse(
       res,
       500,
-      message
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Internal server error",
     );
   }
 };
@@ -739,15 +724,11 @@ export const updateEventStatus = async (req, res) => {
     const { event_id } = req.params;
     const { status } = req.body || {};
 
-    if (
-      !event_id ||
-      !Number.isInteger(Number(event_id)) ||
-      Number(event_id) <= 0
-    ) {
+    if (!isValidId(event_id)) {
       return sendErrorResponse(
         res,
         400,
-        "Valid event_id is required"
+        "Valid event ID is required",
       );
     }
 
@@ -755,15 +736,20 @@ export const updateEventStatus = async (req, res) => {
       return sendErrorResponse(
         res,
         400,
-        "Status is required"
+        "Status is required",
       );
     }
 
-    if (!EVENT_STATUSES.includes(status)) {
+    const normalizedStatus = status
+      .toString()
+      .trim()
+      .toUpperCase();
+
+    if (!EVENT_STATUSES.includes(normalizedStatus)) {
       return sendErrorResponse(
         res,
         400,
-        "Invalid status. Allowed values are PENDING, APPROVED, ONGOING, COMPLETED, CANCELLED"
+        "Invalid status. Allowed values are PENDING, APPROVED, ONGOING, COMPLETED, CANCELLED",
       );
     }
 
@@ -776,24 +762,29 @@ export const updateEventStatus = async (req, res) => {
       FROM tbl_events
       WHERE event_id = $1
       `,
-      [Number(event_id)]
+      [Number(event_id)],
     );
 
     if (existingEvent.rows.length === 0) {
       return sendErrorResponse(
         res,
         404,
-        "Event not found"
+        `Event with ID ${event_id} not found`,
       );
     }
 
-    const currentStatus = existingEvent.rows[0].status;
+    const currentStatus =
+      existingEvent.rows[0].status;
 
-    if (!allowedTransitions[currentStatus].includes(status)) {
+    if (
+      !allowedTransitions[currentStatus]?.includes(
+        normalizedStatus,
+      )
+    ) {
       return sendErrorResponse(
         res,
         400,
-        `Cannot change event status from ${currentStatus} to ${status}`
+        `Cannot change event status from ${currentStatus} to ${normalizedStatus}`,
       );
     }
 
@@ -807,20 +798,22 @@ export const updateEventStatus = async (req, res) => {
       RETURNING *
       `,
       [
-        status,
-        Number(event_id)
-      ]
+        normalizedStatus,
+        Number(event_id),
+      ],
     );
 
     return sendSuccessResponse(
       res,
       200,
       "Event status updated successfully",
-      result.rows[0]
+      result.rows[0],
     );
-
   } catch (error) {
-    console.error("Update Event Status Error:", error);
+    console.error(
+      "Update Event Status Error:",
+      error,
+    );
 
     const message =
       process.env.NODE_ENV === "development"
@@ -830,7 +823,7 @@ export const updateEventStatus = async (req, res) => {
     return sendErrorResponse(
       res,
       500,
-      message
+      message,
     );
   }
 };
